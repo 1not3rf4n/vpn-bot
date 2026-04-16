@@ -33,9 +33,12 @@ async def admin_finance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def toggle_finance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     key = query.data.replace("tg_finance_", "")
-    cur = await get_setting(key, "off")
-    await set_setting(key, "off" if cur=="on" else "on")
+    # پیش‌فرض‌ها باید با admin_finance_menu یکی باشن
+    defaults = {"card_enabled": "on", "crypto_enabled": "off", "zarinpal_enabled": "off"}
+    cur = await get_setting(key, defaults.get(key, "off"))
+    await set_setting(key, "off" if cur == "on" else "on")
     await admin_finance_menu(update, context)
 
 # Setters
