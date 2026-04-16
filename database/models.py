@@ -96,7 +96,10 @@ class Ticket(Base):
 class FreeConfig(Base):
     __tablename__ = 'free_configs'
     id = Column(Integer, primary_key=True)
-    config_text = Column(String(500))
+    config_text = Column(String(500), nullable=True)
+    country = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    config_data = Column(Text, nullable=True)
     is_claimed = Column(Boolean, default=False)
     claimed_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
