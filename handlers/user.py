@@ -56,8 +56,10 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         row_3.append(KeyboardButton("📞 پشتیبانی"))
         keyboard.append(row_3)
         
+        keyboard.append([KeyboardButton("🎁 دعوت از دوستان")])
+        
         if free_en == "on":
-            keyboard.append([KeyboardButton("🎁 کانفیگ رایگان")])
+            keyboard.append([KeyboardButton("🎮 کانفیگ رایگان")])
         
         if is_admin:
             keyboard.append([KeyboardButton("⚙️ پنل مدیریت")])
@@ -220,6 +222,32 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif "پشتیبانی" in text:
         await update.message.reply_text("جهت ارتباط با پشتیبانی روی کلید زیر کلیک کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("شروع تیکت جدید", callback_data="support_new")], [InlineKeyboardButton("تیکت‌های قبلی من", callback_data="my_tickets")]]))
+
+    elif "دعوت از دوستان" in text:
+        bot_un = context.bot.username
+        user_id = update.effective_user.id
+        link = f"https://t.me/{bot_un}?start={user_id}"
+        prc = await settings.get_setting("referral_percent", "10")
+        
+        async with AsyncSessionLocal() as session:
+            user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
+            referrals_count = len((await session.execute(select(User).where(User.referred_by_id == user_db.id))).scalars().all()) if user_db else 0
+        
+        share_text = f"سلام! از این ربات عالی VPN استفاده کن 👇\n{link}"
+        
+        msg = f"""🎁 **طرح دعوت از دوستان**
+
+با دعوت از دوستان خود از طریق لینک زیر، **{prc} درصد** از مبلغ تمامی خریدهای آن‌ها مستقیماً به کیف پول شما اضافه می‌شود!
+
+👥 تعداد زیرمجموعه‌های شما: **{referrals_count}** نفر
+
+🔗 لینک اختصاصی شما:
+`{link}`"""
+        keyboard = [
+            [InlineKeyboardButton("📤 ارسال برای دوستان", url=f"https://t.me/share/url?url={link}&text=سلام!+از+این+ربات+عالی+VPN+استفاده+کن+👇")],
+            [InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link))]
+        ]
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif "کانفیگ رایگان" in text:
         async with AsyncSessionLocal() as session:
