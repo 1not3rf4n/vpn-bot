@@ -56,7 +56,7 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         row_3.append(KeyboardButton("📞 پشتیبانی"))
         keyboard.append(row_3)
         
-        keyboard.append([KeyboardButton("🎁 دعوت از دوستان")])
+        keyboard.append([KeyboardButton("🎁 رفرال گیری")])
         
         if free_en == "on":
             keyboard.append([KeyboardButton("❤️‍🔥 کانفیگ رایگان")])
@@ -162,8 +162,8 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_un = context.bot.username
         user_id = update.effective_user.id
         link = f"https://t.me/{bot_un}?start={user_id}"
-        import core.settings as settings
-        prc = await settings.get_setting("referral_percent", "10")
+        import core.settings as _settings
+        prc = await _settings.get_setting("referral_percent", "10")
         
         async with AsyncSessionLocal() as session:
             from database.models import Order
@@ -223,7 +223,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "پشتیبانی" in text:
         await update.message.reply_text("جهت ارتباط با پشتیبانی روی کلید زیر کلیک کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("شروع تیکت جدید", callback_data="support_new")], [InlineKeyboardButton("تیکت‌های قبلی من", callback_data="my_tickets")]]))
 
-    elif "دعوت از دوستان" in text:
+    elif "رفرال" in text:
         bot_un = context.bot.username
         user_id = update.effective_user.id
         link = f"https://t.me/{bot_un}?start={user_id}"
