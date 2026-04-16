@@ -84,7 +84,7 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     
     if not await check_forced_join(update, context):
-        await query.answer("لطفا در کانال حامی عضو شوید.", show_alert=True)
+        await query.answer("لطفا در کانال ما عضو شوید.", show_alert=True)
         return
         
     await query.answer()
@@ -233,7 +233,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             referrals_count = len((await session.execute(select(User).where(User.referred_by_id == user_db.id))).scalars().all()) if user_db else 0
         
-        share_text = f"سلام! از این ربات عالی VPN استفاده کن 👇\n{link}"
+        share_text = f"سلام با ما به اینترنت آزاد وصل شو\n{link}"
         
         msg = f"""🎁 **طرح دعوت از دوستان**
 
@@ -257,7 +257,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("در حال حاضر کانفیگ رایگانی در دسترس نیست.")
             else:
                 c = configs[0]
-                msg = f"🎁 **کانفیگ رایگان (تست)**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\nلینک/کد:\n`{c.config_data}`"
+                msg = f"🎁 **کانفیگ رایگان**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\nلینک/کد:\n`{c.config_data}`"
                 keys = InlineKeyboardMarkup([
                     [InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=c.config_data))]
                 ])
