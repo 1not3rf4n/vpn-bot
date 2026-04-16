@@ -36,7 +36,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "👑 **پنل مدیریت پیشرفته (دپارتمان‌ها)**\nلطفا بخش مورد نظر خود را انتخاب کنید:"
     keyboard = [
         [InlineKeyboardButton("📊 آمار و گزارشات", callback_data="admin_stats"), InlineKeyboardButton("🔍 جستجوی کاربر", callback_data="admin_search_user")],
-        [InlineKeyboardButton("📋 ۱۰ سفارش اخیر", callback_data="admin_recent_orders")],
+        [InlineKeyboardButton("📋 ۱۰ سفارش اخیر", callback_data="admin_recent_orders"), InlineKeyboardButton("🔎 جستجوی سفارش", callback_data="admin_search_order")],
         [InlineKeyboardButton(f"🧾 صندوق فیش‌ها ({pending_receipts})", callback_data="admin_receipts"), InlineKeyboardButton(f"🎫 پشتیبانی تیکت‌ها ({open_tickets})", callback_data="admin_tickets")],
         [InlineKeyboardButton("🗂 مدیریت فروشگاه (دسته‌بندی و محصول)", callback_data="admin_shop")],
         [InlineKeyboardButton("💰 مالی و درگاه‌ها", callback_data="admin_finance_menu"), InlineKeyboardButton("🎁 مدیریت تخفیف‌ها", callback_data="admin_discounts_menu")],

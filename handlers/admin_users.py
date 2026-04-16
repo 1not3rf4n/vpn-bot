@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 WAIT_USER_ID = 63
 WAIT_SVC_TEXT = 64
 WAIT_SVC_DUR = 65
+WAIT_ORDER_SEARCH = 66
 
 async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -257,6 +258,89 @@ async def adm_send_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     return ConversationHandler.END
 
+# --- Order/Subscription Search ---
+async def admin_search_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    text = "🔎 **جستجوی سفارش / کد اشتراک**\n\nشماره سفارش را وارد کنید.\nمثال: `5` یا `SUB-5` یا `O-5`"
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="Markdown")
+    return WAIT_ORDER_SEARCH
+
+async def admin_search_order_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = update.message.text.strip().upper()
+    # Extract order ID from various formats: "5", "#SUB-5", "SUB-5", "#O5", "O-5"
+    import re
+    match = re.search(r'(\d+)', val)
+    if not match:
+        await update.message.reply_text("❌ فرمت نامعتبر. لطفاً شماره سفارش را وارد کنید:", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+        return WAIT_ORDER_SEARCH
+    
+    order_id = int(match.group(1))
+    
+    async with AsyncSessionLocal() as session:
+        from database.models import Product
+        order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
+        if not order:
+            await update.message.reply_text(f"❌ سفارشی با شماره `{order_id}` یافت نشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="Markdown")
+            return WAIT_ORDER_SEARCH
+        
+        user = (await session.execute(select(User).where(User.id == order.user_id))).scalars().first()
+        product = (await session.execute(select(Product).where(Product.id == order.product_id))).scalars().first()
+        receipt = (await session.execute(select(Receipt).where(Receipt.reference_id == order.id).where(Receipt.receipt_type == "ORDER"))).scalars().first()
+        service = (await session.execute(select(Service).where(Service.user_id == order.user_id).order_by(Service.id.desc()))).scalars().first()
+    
+    status_fa = {"PAID": "✅ موفق", "PENDING": "⏳ در انتظار", "CANCELED": "❌ لغو", "REJECTED": "🔴 رد شده"}.get(order.status, order.status)
+    method_fa = {"ZARINPAL": "درگاه", "WALLET": "کیف‌پول", "CARD": "کارت به کارت", "CRYPTO": "ارز دیجیتال"}.get(order.payment_method, order.payment_method)
+    
+    uname = f" (@{user.username})" if user and user.username else ""
+    date_str = order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "نامشخص"
+    product_name = product.name if product else "حذف شده"
+    
+    text = f"""🔎 **جزئیات سفارش #{order.id}**
+
+👤 **کاربر:**
+نام: {user.fullname if user else 'نامشخص'}{uname}
+آیدی تلگرام: `{user.telegram_id if user else 'نامشخص'}`
+لینک: [کلیک](tg://user?id={user.telegram_id if user else 0})
+
+📦 **محصول:** {product_name}
+💰 **مبلغ:** {order.amount:,.0f} تومان
+💳 **روش پرداخت:** {method_fa}
+📊 **وضعیت:** {status_fa}
+📅 **تاریخ:** {date_str}"""
+
+    if receipt:
+        rec_status = {"PENDING": "⏳ بررسی نشده", "APPROVED": "✅ تایید شده", "REJECTED": "❌ رد شده"}.get(receipt.status, receipt.status)
+        text += f"\n\n🧾 **فیش:** #{receipt.id} | وضعیت: {rec_status}"
+    else:
+        text += "\n\n🧾 **فیش:** ندارد (پرداخت کیف پول)"
+    
+    keys = []
+    if receipt and receipt.photo_id:
+        keys.append([InlineKeyboardButton("🖼 مشاهده فیش", callback_data=f"adm_view_order_receipt_{receipt.id}")])
+    if user:
+        keys.append([InlineKeyboardButton("👤 مشاهده پروفایل کاربر", callback_data=f"adm_search_back_{user.id}")])
+    keys.append([InlineKeyboardButton("🔎 جستجوی سفارش دیگر", callback_data="admin_search_order")])
+    keys.append(CANCEL_BTN[0])
+    
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def adm_view_order_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    rec_id = int(query.data.split("_")[4])
+    
+    async with AsyncSessionLocal() as session:
+        receipt = (await session.execute(select(Receipt).where(Receipt.id == rec_id))).scalars().first()
+        if not receipt or not receipt.photo_id:
+            await query.edit_message_text("فیشی یافت نشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+            return
+    
+    keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_cancel")]]
+    await query.message.delete()
+    await context.bot.send_photo(chat_id=query.message.chat_id, photo=receipt.photo_id, caption=f"🧾 فیش #{receipt.id}", reply_markup=InlineKeyboardMarkup(keys))
+
 async def cancel_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query: await update.callback_query.answer()
     await admin_panel(update, context)
@@ -266,11 +350,13 @@ def get_admin_users_conv_handler():
     return ConversationHandler(
         entry_points=[
             CallbackQueryHandler(admin_search_user_start, pattern="^admin_search_user$"),
+            CallbackQueryHandler(admin_search_order_start, pattern="^admin_search_order$"),
             CallbackQueryHandler(start_add_manual_svc, pattern="^adm_addsvc_"),
             CallbackQueryHandler(adm_start_msg, pattern="^adm_msg_")
         ],
         states={
             WAIT_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_search_user_result)],
+            WAIT_ORDER_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_search_order_result)],
             WAIT_SVC_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_manual_svc_text)],
             WAIT_SVC_DUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_manual_svc_dur)],
             WAIT_USER_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_send_msg)]
@@ -289,5 +375,6 @@ def get_admin_users_routers():
         CallbackQueryHandler(do_del_svc, pattern="^adm_delsvc_"),
         CallbackQueryHandler(adm_view_user_tcks, pattern="^adm_tcks_"),
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
-        CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_")
+        CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
+        CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_")
     ]
