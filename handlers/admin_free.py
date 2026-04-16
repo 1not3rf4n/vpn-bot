@@ -109,16 +109,25 @@ async def save_free_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def del_free_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from handlers.admin import check_admin
+    if not await check_admin(update.effective_user.id):
+        return
+
     try:
-        fid = int(update.message.text.split("_")[2])
+        # Extract ID from /del_free_123
+        text = update.message.text
+        fid = int(text.split("_")[-1])
+        
         async with AsyncSessionLocal() as session:
             c = (await session.execute(select(FreeConfig).where(FreeConfig.id == fid))).scalars().first()
             if c:
                 await session.delete(c)
                 await session.commit()
-                await update.message.reply_text("🗑 کانفیگ حذف شد.")
-    except:
-        pass
+                await update.message.reply_text(f"🗑 کانفیگ شماره {fid} با موفقیت حذف شد.")
+            else:
+                await update.message.reply_text("❌ این کانفیگ یافت نشد یا قبلاً حذف شده است.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطا در حذف: {e}")
 
 
 def get_admin_free_conv():
@@ -140,5 +149,5 @@ def get_admin_free_conv():
 def get_admin_free_routers():
     return [
         CallbackQueryHandler(admin_free_list, pattern="^admin_free_configs$"),
-        CommandHandler("del_free", del_free_command)
+        MessageHandler(filters.Regex(r'^/del_free_\d+'), del_free_command)
     ]
