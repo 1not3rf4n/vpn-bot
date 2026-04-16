@@ -327,7 +327,8 @@ async def shop_receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             amt_str = f"{amt:,.0f} تومان"
             
-        admin_text = f"🛒 **درخواست خرید محصول (پرداخت مستقیم)**\nکاربر: {update.effective_user.full_name}\nمحصول: {product.name}\nمبلغ پرداخت: {amt_str}\nآیدی رسید: #O{receipt_id}"
+        uname = f" (@{update.effective_user.username})" if update.effective_user.username else ""
+        admin_text = f"🛒 **درخواست خرید محصول (پرداخت مستقیم)**\nکاربر: {update.effective_user.full_name}{uname}\nمحصول: {product.name}\nمبلغ پرداخت: {amt_str}\nآیدی رسید: #O{receipt_id}"
         keys = [
             [InlineKeyboardButton("✅ تایید سند", callback_data=f"verify_receipt_{receipt_id}")],
             [InlineKeyboardButton("❌ رد سند", callback_data=f"reject_receipt_{receipt_id}")]

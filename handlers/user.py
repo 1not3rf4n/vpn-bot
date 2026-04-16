@@ -59,7 +59,7 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         keyboard.append([KeyboardButton("🎁 دعوت از دوستان")])
         
         if free_en == "on":
-            keyboard.append([KeyboardButton("🎮 کانفیگ رایگان")])
+            keyboard.append([KeyboardButton("❤️‍🔥 کانفیگ رایگان")])
         
         if is_admin:
             keyboard.append([KeyboardButton("⚙️ پنل مدیریت")])

@@ -120,7 +120,8 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receipt_id = receipt.id
         
         # Notify Admins
-        admin_text = f"💰 **درخواست شارژ حساب تحویل شد**\nکاربر: {update.effective_user.full_name} ({user_id})\nمبلغ: {amount} تومان\nآیدی دیتابیس رسید: #T{receipt_id}"
+        uname = f" (@{update.effective_user.username})" if update.effective_user.username else ""
+        admin_text = f"💰 **درخواست شارژ حساب تحویل شد**\nکاربر: {update.effective_user.full_name}{uname} ({user_id})\nمبلغ: {amount} تومان\nآیدی دیتابیس رسید: #T{receipt_id}"
         keys = [
             [InlineKeyboardButton("✅ تایید و شارژ", callback_data=f"verify_receipt_{receipt_id}")],
             [InlineKeyboardButton("❌ رد تراکنش", callback_data=f"reject_receipt_{receipt_id}")]
@@ -199,7 +200,8 @@ async def admin_view_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_db = (await session.execute(select(User).where(User.id == receipt.user_id))).scalars().first()
         
     r_type_text = "شارژ کیف پول" if receipt.receipt_type == "TOPUP" else "خرید محصول مستقیم"
-    admin_text = f"🛒 **تایید فیش مالی**\nکاربر: {user_db.fullname or user_db.telegram_id}\nمبلغ: {receipt.amount} تومان\nنوع فیش: {r_type_text}\nآیدی رسید: #{receipt.id}"
+    uname = f" (@{user_db.username})" if user_db.username else ""
+    admin_text = f"🛒 **تایید فیش مالی**\nکاربر: {user_db.fullname or user_db.telegram_id}{uname}\nمبلغ: {receipt.amount} تومان\nنوع فیش: {r_type_text}\nآیدی رسید: #{receipt.id}"
     keys = [
         [InlineKeyboardButton("✅ تایید سند", callback_data=f"verify_receipt_{receipt.id}")],
         [InlineKeyboardButton("❌ رد", callback_data=f"reject_receipt_{receipt.id}")],
