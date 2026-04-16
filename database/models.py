@@ -96,6 +96,7 @@ class Ticket(Base):
 class FreeConfig(Base):
     __tablename__ = 'free_configs'
     id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=True)
     config_text = Column(String(500), nullable=True)
     country = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)

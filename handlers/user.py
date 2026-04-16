@@ -97,6 +97,12 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
         from handlers.wallet import wallet_menu
         await wallet_menu(update, context)
         
+    elif query.data == "back_to_free_list":
+        await back_to_free_list(update, context)
+        
+    elif query.data.startswith("free_select_"):
+        await free_config_detail_handler(update, context)
+        
     elif query.data == "my_referral":
         bot_un = context.bot.username
         link = f"https://t.me/{bot_un}?start={user_id}"
@@ -252,30 +258,69 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "کانفیگ رایگان" in text:
         async with AsyncSessionLocal() as session:
             from database.models import FreeConfig
-            configs = (await session.execute(select(FreeConfig).order_by(FreeConfig.id.desc()).limit(1))).scalars().all()
+            configs = (await session.execute(select(FreeConfig).order_by(FreeConfig.id.desc()))).scalars().all()
             if not configs:
                 await update.message.reply_text("در حال حاضر کانفیگ رایگانی در دسترس نیست.")
             else:
-                c = configs[0]
-                config_text = c.config_data
-                msg = f"🎁 **کانفیگ رایگان**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\n"
+                msg = "❤️‍🔥 **لیست کانفیگ‌های رایگان فعال**\nلطفاً یکی از سرورهای زیر را انتخاب کنید:"
+                keys = []
+                for c in configs:
+                    name = c.title or c.country or f"سرور شماره {c.id}"
+                    keys.append([InlineKeyboardButton(f"🌐 {name}", callback_data=f"free_select_{c.id}")])
                 
-                # Check if V2RAY or other
-                links = [l.strip() for l in config_text.strip().split('\n') if l.strip()]
-                is_v2ray = any(l.startswith('vless://') or l.startswith('vmess://') for l in links)
-                
-                btn_list = []
-                if is_v2ray:
-                    msg += f"لینک/کد:\n`{config_text}`"
-                    # تلگرام محدودیت ۲۵۶ کاراکتر برای دکمه کپی دارد
-                    if len(config_text) <= 256:
-                        btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
-                else:
-                    for i, link in enumerate(links, 1):
-                        msg += f"🔗 لینک {i}:\n`{link}`\n\n"
-                        if len(link) <= 256:
-                            btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
-                
-                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btn_list) if btn_list else None)
+                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys))
+
+async def free_config_detail_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    config_id = int(query.data.split("_")[2])
+    
+    async with AsyncSessionLocal() as session:
+        from database.models import FreeConfig
+        c = (await session.execute(select(FreeConfig).where(FreeConfig.id == config_id))).scalars().first()
+        if not c:
+            await query.edit_message_text("❌ این کانفیگ دیگر موجود نیست.")
+            return
+
+        config_text = c.config_data
+        msg = f"🎁 **کانفیگ رایگان: {c.title or 'بدون نام'}**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\n"
+        
+        links = [l.strip() for l in config_text.strip().split('\n') if l.strip()]
+        is_v2ray = any(l.startswith('vless://') or l.startswith('vmess://') for l in links)
+        
+        btn_list = []
+        if is_v2ray:
+            msg += f"لینک/کد:\n`{config_text}`"
+            if len(config_text) <= 256:
+                btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
+        else:
+            for i, link in enumerate(links, 1):
+                msg += f"🔗 لینک {i}:\n`{link}`\n\n"
+                if len(link) <= 256:
+                    btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
+        
+        btn_list.append([InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="back_to_free_list")])
+        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btn_list))
+
+async def back_to_free_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    async with AsyncSessionLocal() as session:
+        from database.models import FreeConfig
+        configs = (await session.execute(select(FreeConfig).order_by(FreeConfig.id.desc()))).scalars().all()
+        if not configs:
+            await query.edit_message_text("در حال حاضر کانفیگ رایگانی در دسترس نیست.")
+            return
+            
+        msg = "❤️‍🔥 **لیست کانفیگ‌های رایگان فعال**\nلطفاً یکی از سرورهای زیر را انتخاب کنید:"
+        keys = []
+        for c in configs:
+            name = c.title or c.country or f"سرور شماره {c.id}"
+            keys.append([InlineKeyboardButton(f"🌐 {name}", callback_data=f"free_select_{c.id}")])
+        
+        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys))
+
 
 
