@@ -267,11 +267,15 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_list = []
                 if is_v2ray:
                     msg += f"لینک/کد:\n`{config_text}`"
-                    btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
+                    # تلگرام محدودیت ۲۵۶ کاراکتر برای دکمه کپی دارد
+                    if len(config_text) <= 256:
+                        btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
                 else:
                     for i, link in enumerate(links, 1):
                         msg += f"🔗 لینک {i}:\n`{link}`\n\n"
-                        btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
+                        if len(link) <= 256:
+                            btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
                 
-                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btn_list))
+                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btn_list) if btn_list else None)
+
 
