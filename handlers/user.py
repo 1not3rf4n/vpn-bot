@@ -257,8 +257,21 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("در حال حاضر کانفیگ رایگانی در دسترس نیست.")
             else:
                 c = configs[0]
-                msg = f"🎁 **کانفیگ رایگان**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\nلینک/کد:\n`{c.config_data}`"
-                keys = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=c.config_data))]
-                ])
-                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keys)
+                config_text = c.config_data
+                msg = f"🎁 **کانفیگ رایگان**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\n"
+                
+                # Check if V2RAY or other
+                links = [l.strip() for l in config_text.strip().split('\n') if l.strip()]
+                is_v2ray = any(l.startswith('vless://') or l.startswith('vmess://') for l in links)
+                
+                btn_list = []
+                if is_v2ray:
+                    msg += f"لینک/کد:\n`{config_text}`"
+                    btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
+                else:
+                    for i, link in enumerate(links, 1):
+                        msg += f"🔗 لینک {i}:\n`{link}`\n\n"
+                        btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
+                
+                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btn_list))
+
