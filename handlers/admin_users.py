@@ -23,7 +23,7 @@ async def render_user_profile(user, message_obj, is_edit=False):
         tickets = (await session.execute(select(Ticket).where(Ticket.user_id == user.id))).scalars().all()
         
     from html import escape
-    u_name = escape(user.fullname)
+    u_name = escape(user.fullname or "نامشخص")
     u_user = escape(user.username) if user.username else "ندارد"
     
     text = f"👤 <b>اطلاعات کاربر</b>\n\n"
@@ -296,8 +296,13 @@ async def admin_search_order_result(update: Update, context: ContextTypes.DEFAUL
     product_name = product.name if product else "حذف شده"
     
     from html import escape
-    u_disp = f"{escape(user.fullname)} (@{escape(user.username)})" if user and user.username else (escape(user.fullname) if user else 'نامشخص')
-    p_name = escape(product_name)
+    u_fullname = escape(user.fullname or "نامشخص")
+    if user and user.username:
+        u_username = escape(user.username)
+        u_disp = f"{u_fullname} (@{u_username})"
+    else:
+        u_disp = u_fullname
+    p_name = escape(product_name or "حذف شده")
     
     text = f"""🔎 <b>جزئیات سفارش #{order.id}</b>
 

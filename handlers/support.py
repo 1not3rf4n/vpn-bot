@@ -50,10 +50,13 @@ async def support_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for admin in config.ADMIN_IDS:
         try:
             from html import escape
-            u_name = escape(update.effective_user.full_name)
-            u_user = escape(update.effective_user.username)
-            u_disp = f"{u_name} (@{u_user})" if update.effective_user.username else u_name
-            admin_msg = f"📩 <b>تیکت جدید</b> (#{ticket_id})\nاز طرف: {u_disp} ({user_id})\n\nمتن:\n{escape(message_text)}"
+            u_name = escape(update.effective_user.full_name or "نامشخص")
+            if update.effective_user.username:
+                u_user = escape(update.effective_user.username)
+                u_disp = f"{u_name} (@{u_user})"
+            else:
+                u_disp = u_name
+            admin_msg = f"📩 <b>تیکت جدید</b> (#{ticket_id})\nاز طرف: {u_disp} ({user_id})\n\nمتن:\n{escape(message_text or 'بدون متن')}"
             keyboard = [[InlineKeyboardButton("✍️ پاسخ به تیکت", callback_data=f"reply_ticket_{ticket_id}")]]
             await context.bot.send_message(admin, admin_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         except: pass
@@ -159,9 +162,14 @@ async def admin_view_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         from html import escape
-        u_disp = f"{escape(user_db.fullname)} (@{escape(user_db.username)})" if user_db and user_db.username else (escape(user_db.fullname) if user_db else "Unknown")
+        u_name = escape(user_db.fullname or "نامشخص")
+        if user_db.username:
+            u_user = escape(user_db.username)
+            u_disp = f"{u_name} (@{u_user})"
+        else:
+            u_disp = u_name
         
-    text = f"🎫 <b>مشاهده تیکت #{ticket.id}</b>\n\n👤 فرستنده: {u_disp}\n🏢 دپارتمنت: {ticket.department}\n\n📝 متن تیکت:\n{escape(ticket.message)}"
+    text = f"🎫 <b>مشاهده تیکت #{ticket.id}</b>\n\n👤 فرستنده: {u_disp}\n🏢 دپارتمنت: {ticket.department}\n\n📝 متن تیکت:\n{escape(ticket.message or 'بدون متن')}"
     keys = [
         [InlineKeyboardButton("✍️ پاسخ به این تیکت", callback_data=f"reply_ticket_{ticket.id}")],
         [InlineKeyboardButton("🗑 پیام خوانده شد (بستن تیکت)", callback_data=f"close_ticket_{ticket.id}")],

@@ -108,9 +108,12 @@ async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
             method_fa = {"ZARINPAL": "درگاه", "WALLET": "کیف‌پول", "CARD": "کارت", "CRYPTO": "کریپتو"}.get(o.payment_method, o.payment_method)
             user_obj = o.user
             if user_obj:
-                u_name = escape(user_obj.fullname)
-                u_user = escape(user_obj.username)
-                uname = f"{u_name} (@{u_user})" if user_obj.username else u_name
+                u_name = escape(user_obj.fullname or "نامشخص")
+                if user_obj.username:
+                    u_user = escape(user_obj.username)
+                    uname = f"{u_name} (@{u_user})"
+                else:
+                    uname = u_name
             else:
                 uname = f"ID:{o.user_id}"
             text += f"🔹 سفارش #{o.id} | کاربر: {uname}\n"

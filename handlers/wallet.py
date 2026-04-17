@@ -121,7 +121,12 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Notify Admins
         from html import escape
-        u_disp = f"{escape(update.effective_user.full_name)} (@{escape(update.effective_user.username)})" if update.effective_user.username else escape(update.effective_user.full_name)
+        u_name = escape(update.effective_user.full_name or "نامشخص")
+        if update.effective_user.username:
+            u_user = escape(update.effective_user.username)
+            u_disp = f"{u_name} (@{u_user})"
+        else:
+            u_disp = u_name
         admin_text = f"💰 <b>درخواست شارژ حساب تحویل شد</b>\nکاربر: {u_disp} ({user_id})\nمبلغ: {amount} تومان\nآیدی دیتابیس رسید: #T{receipt_id}"
         keys = [
             [InlineKeyboardButton("✅ تایید و شارژ", callback_data=f"verify_receipt_{receipt_id}")],
@@ -202,7 +207,9 @@ async def admin_view_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     r_type_text = "شارژ کیف پول" if receipt.receipt_type == "TOPUP" else "خرید محصول مستقیم"
     from html import escape
-    u_disp = f"{escape(user_db.fullname)} (@{escape(user_db.username)})" if user_db.username else escape(user_db.fullname)
+    u_name = escape(user_db.fullname or "نامشخص")
+    u_user = escape(user_db.username) if user_db.username else "ندارد"
+    u_disp = f"{u_name} (@{u_user})" if user_db.username else u_name
     admin_text = f"🛒 <b>تایید فیش مالی</b>\nکاربر: {u_disp}\nمبلغ: {receipt.amount} تومان\nنوع فیش: {r_type_text}\nآیدی رسید: #{receipt.id}"
     keys = [
         [InlineKeyboardButton("✅ تایید سند", callback_data=f"verify_receipt_{receipt.id}")],
