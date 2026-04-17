@@ -49,6 +49,7 @@ async def render_user_profile(user, message_obj, is_edit=False):
         [InlineKeyboardButton("⚙️ مشاهده/مدیریت سرویس‌ها", callback_data=f"adm_mgsvc_{user.id}")],
         [InlineKeyboardButton("🔍 سابقه تیکت‌ها", callback_data=f"adm_tcks_{user.id}"), InlineKeyboardButton("👀 فیش‌ها", callback_data=f"adm_recs_{user.id}")],
         [InlineKeyboardButton("💬 ارسال پیام ربات", callback_data=f"adm_msg_{user.id}")],
+        [InlineKeyboardButton("💰 صفر کردن کیف پول", callback_data=f"adm_resetwal_{user.id}")],
         CANCEL_BTN[0]
     ]
     
@@ -235,6 +236,22 @@ async def do_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.answer("❌ خطا: سرویس یافت نشد.")
         await admin_panel(update, context)
+
+async def adm_reset_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    u_id = int(query.data.split("_")[2])
+    
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
+        if user:
+            user.wallet_balance = 0.0
+            await session.commit()
+            logger.info(f"Admin {query.from_user.id} reset wallet of user {user.telegram_id}")
+            await query.answer("✅ موجودی کیف پول کاربر صفر شد.", show_alert=True)
+            await render_user_profile(user, query, is_edit=True)
+        else:
+            await query.answer("❌ کاربر یافت نشد.")
 
 # --- User Tickets View ---
 async def adm_view_user_tcks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -438,6 +455,7 @@ def get_admin_users_routers():
         CallbackQueryHandler(do_del_svc, pattern="^adm_delsvc"),
         CallbackQueryHandler(adm_view_user_tcks, pattern="^adm_tcks_"),
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
+        CallbackQueryHandler(adm_reset_wallet, pattern="^adm_resetwal_"),
         CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
         CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_")
     ]
