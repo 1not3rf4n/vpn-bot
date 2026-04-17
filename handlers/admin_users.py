@@ -65,8 +65,9 @@ async def admin_search_user_result(update: Update, context: ContextTypes.DEFAULT
         if val.isdigit():
             user = (await session.execute(select(User).where(User.telegram_id == int(val)))).scalars().first()
         else:
-            uname = val.replace("@", "")
-            user = (await session.execute(select(User).where(User.username == uname))).scalars().first()
+            from sqlalchemy import func
+            uname = val.replace("@", "").lower()
+            user = (await session.execute(select(User).where(func.lower(User.username) == uname))).scalars().first()
             
         if not user:
             await update.message.reply_text("❌ کاربری با این مشخصات در دیتابیس یافت نشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
