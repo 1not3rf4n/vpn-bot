@@ -103,6 +103,7 @@ class FreeConfig(Base):
     config_data = Column(Text, nullable=True)
     is_claimed = Column(Boolean, default=False)
     claimed_by = Column(Integer, ForeignKey('users.id'), nullable=True)
+    expire_date = Column(DateTime, nullable=True) # Expiration date for the config
     created_at = Column(DateTime, default=datetime.utcnow)
     
 class Receipt(Base):

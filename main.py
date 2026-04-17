@@ -44,6 +44,7 @@ def main():
 
     from handlers.admin_users import get_admin_users_conv_handler, get_admin_users_routers
     from handlers.admin_free import get_admin_free_conv, get_admin_free_routers
+    from handlers.admin_broadcast import get_broadcast_conv
     
     # Admin Conversations
     application.add_handler(get_settings_conv_handler())
@@ -52,6 +53,7 @@ def main():
     application.add_handler(get_discount_conv_handler())
     application.add_handler(get_admin_users_conv_handler())
     application.add_handler(get_admin_free_conv())
+    application.add_handler(get_broadcast_conv())
     
     # Financials & Support Conversations
     application.add_handler(get_wallet_conv_handler())
