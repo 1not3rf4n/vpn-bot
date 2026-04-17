@@ -288,6 +288,11 @@ async def admin_search_order_result(update: Update, context: ContextTypes.DEFAUL
         receipt = (await session.execute(select(Receipt).where(Receipt.reference_id == order.id).where(Receipt.receipt_type == "ORDER"))).scalars().first()
         service = (await session.execute(select(Service).where(Service.user_id == order.user_id).order_by(Service.id.desc()))).scalars().first()
     
+    status_fa = {"PAID": "✅ موفق", "PENDING": "⏳ در انتظار", "CANCELED": "❌ لغو", "REJECTED": "🔴 رد شده"}.get(order.status, order.status)
+    method_fa = {"ZARINPAL": "درگاه", "WALLET": "کیف‌پول", "CARD": "کارت به کارت", "CRYPTO": "ارز دیجیتال"}.get(order.payment_method, order.payment_method)
+    date_str = order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "نامشخص"
+    product_name = product.name if product else "حذف شده"
+    
     u_disp = f"{user.fullname} (@{user.username})" if user and user.username else (user.fullname if user else 'نامشخص')
     text = f"""🔎 **جزئیات سفارش #{order.id}**
 
