@@ -78,6 +78,30 @@ async def provision_order_and_notify(order_id: int, bot):
                 
         svc.config_link = (config_link or delivery_note) + f"\n\nکد رهگیری: {sub_code}"
         session.add(svc)
+        # Referral System
+        if user.referred_by_id:
+            try:
+                inviter = await session.get(User, user.referred_by_id)
+                if inviter:
+                    ref_percent = int(await get_setting("referral_percent", "10"))
+                    commission = order.amount * (ref_percent / 100)
+                    if commission > 0:
+                        inviter.wallet_balance += commission
+                        logger.info(f"Referral reward: {commission} given to user {inviter.id} for order {order.id}")
+                        
+                        # Notify inviter
+                        try:
+                            msg_text = (
+                                f"🎁 <b>تبریک! هدیه معرفی دوستان</b>\n\n"
+                                f"دوست شما یک خرید موفق انجام داد و مبلغ <b>{commission:,.0f} تومان</b> "
+                                f"پورسانت ({ref_percent}٪) به کیف پول شما اضافه شد! ✨"
+                            )
+                            await bot.send_message(inviter.telegram_id, msg_text, parse_mode="HTML")
+                        except Exception as ne:
+                            logger.error(f"Failed to notify inviter {inviter.telegram_id}: {ne}")
+            except Exception as re:
+                logger.error(f"Referral system error: {re}")
+
         await session.commit()
         
         try:
