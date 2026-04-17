@@ -249,8 +249,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔗 لینک اختصاصی شما:
 `{link}`"""
+        from urllib.parse import quote
+        encoded_text = quote("با ما به اینترنت آزاد متصل بشید ❤️")
         keyboard = [
-            [InlineKeyboardButton("📤 ارسال برای دوستان", url=f"https://t.me/share/url?url={link}&text=با+ما+به+اینترنت+آزاد+متصل+بشید+❤️")],
+            [InlineKeyboardButton("📤 ارسال برای دوستان", url=f"https://t.me/share/url?url={link}&text={encoded_text}")],
             [InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link))]
         ]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
