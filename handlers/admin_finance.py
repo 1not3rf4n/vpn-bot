@@ -19,7 +19,7 @@ async def admin_finance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     st_crypt = "🟢 روشن" if crypto_stat=="on" else "🔴 خاموش"
     st_zrn = "🟢 روشن" if zrn_stat=="on" else "🔴 خاموش"
 
-    text = "💰 **تنظیمات مالی و درگاه‌ها**\nشما می‌توانید روش‌های پرداخت را فعال یا غیرفعال کنید:"
+    text = "💰 <b>تنظیمات مالی و درگاه‌ها</b>\nشما می‌توانید روش‌های پرداخت را فعال یا غیرفعال کنید:"
     keys = [
         [InlineKeyboardButton(f"💳 کارت بانکی ({st_card})", callback_data="tg_finance_card_enabled")],
         [InlineKeyboardButton("✍️ تغییر شماره کارت", callback_data="fin_set_card")],
@@ -28,8 +28,8 @@ async def admin_finance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton(f"🌐 درگاه مستقیم ({st_zrn})", callback_data="tg_finance_zarinpal_enabled")],
         CANCEL_BTN[0]
     ]
-    if query: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
-    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    if query: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def toggle_finance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -45,8 +45,9 @@ async def toggle_finance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    cur = await get_setting("admin_card", "تنظیم نشده")
-    await query.message.reply_text(f"شماره کارت فعلی:\n`{cur}`\n\nلطفا شماره کارت جدید را ارسال کنید:", reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="Markdown")
+    from html import escape
+    cur = escape(await get_setting("admin_card", "تنظیم نشده"))
+    await query.message.reply_text(f"شماره کارت فعلی:\n<code>{cur}</code>\n\nلطفا شماره کارت جدید را ارسال کنید:", reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
     return WAIT_CARD
 
 async def save_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,19 +63,20 @@ async def admin_crypto_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         nets = (await session.execute(select(CryptoNetwork))).scalars().all()
         
-    text = "🪙 **مدیریت شبکه‌های ارز دیجیتال**\nولِت‌های فعال شما:\n\n"
+    from html import escape
+    text = "🪙 <b>مدیریت شبکه‌های ارز دیجیتال</b>\nولِت‌های فعال شما:\n\n"
     if not nets: text += "هیچ ولتی ثبت نشده است."
     else:
         for n in nets:
-            text += f"🔹 {n.name} ({n.network})\nآدرس: `{n.address}`\n\n"
+            text += f"🔹 {escape(n.name)} ({escape(n.network)})\nآدرس: <code>{escape(n.address)}</code>\n\n"
             
     keys = [
         [InlineKeyboardButton("➕ افزودن ولت جدید", callback_data="fin_add_crypto")],
         [InlineKeyboardButton("🗑 حذف همه ولت‌ها", callback_data="fin_delall_crypto")],
         CANCEL_BTN[0]
     ]
-    if query: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
-    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    if query: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def req_crypto_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

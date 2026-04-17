@@ -34,7 +34,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         open_tickets = len((await session.execute(select(Ticket).where(Ticket.status == "OPEN"))).scalars().all())
         total_users = len((await session.execute(select(User))).scalars().all())
 
-    text = f"👑 **پنل مدیریت پیشرفته**\n➖➖➖➖➖➖\n👥 تعداد کل کاربران: `{total_users}`\n\nلطفا بخش مورد نظر خود را انتخاب کنید:"
+    text = f"👑 <b>پنل مدیریت پیشرفته</b>\n➖➖➖➖➖➖\n👥 تعداد کل کاربران: <code>{total_users}</code>\n\nلطفا بخش مورد نظر خود را انتخاب کنید:"
     keyboard = [
         [InlineKeyboardButton("📊 آمار و گزارشات", callback_data="admin_stats"), InlineKeyboardButton("🔍 جستجوی کاربر", callback_data="admin_search_user")],
         [InlineKeyboardButton("📋 ۱۰ سفارش اخیر", callback_data="admin_recent_orders"), InlineKeyboardButton("🔎 جستجوی سفارش", callback_data="admin_search_order")],
@@ -144,3 +144,15 @@ async def admin_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_stats(update, context)
     elif query.data == "admin_recent_orders":
         await admin_recent_orders(update, context)
+    elif query.data == "admin_broadcast":
+        from handlers.admin_broadcast import start_broadcast
+        await start_broadcast(update, context)
+    elif query.data == "admin_free_configs":
+        from handlers.admin_free import admin_free_list
+        await admin_free_list(update, context)
+    elif query.data.startswith("adm_free_mg_"):
+        from handlers.admin_free import admin_free_manage_menu
+        await admin_free_manage_menu(update, context)
+    elif query.data.startswith("adm_free_del_"):
+        from handlers.admin_free import admin_free_delete_confirm
+        await admin_free_delete_confirm(update, context)

@@ -5,6 +5,7 @@ from database.models import AsyncSessionLocal, User, Category, Product, Service
 import core.config as config
 import core.settings as settings
 from core.utils import check_forced_join
+from html import escape
 
 async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_id_passed=None):
     if not await check_forced_join(update, context):
@@ -121,20 +122,21 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
             services = result.scalars().all()
             
             keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
-            text = "🌐 **سرویس‌های من**\n\n"
+            text = "🌐 <b>سرویس‌های من</b>\n\n"
             if not services:
                 text += "شما هیچ سرویس فعالی ندارید!"
             else:
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                     status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
-                    text += f"{idx}. پنل/یوزرنیم: {s.panel_username or 'سرویس متفرقه'}\n"
+                    p_name = escape(s.panel_username or 'سرویس متفرقه')
+                    text += f"{idx}. پنل/یوزرنیم: {p_name}\n"
                     text += f"وضعیت: {status} | انقضا: {exp}\n"
                     if s.config_link:
-                        text += f"لینک: `{s.config_link}`\n"
+                        text += f"لینک: <code>{escape(s.config_link)}</code>\n"
                     text += "➖➖➖➖➖➖\n"
             
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
@@ -147,10 +149,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cats = (await session.execute(select(Category).where(Category.parent_id == None))).scalars().all()
             prods = (await session.execute(select(Product).where(Product.category_id == None))).scalars().all()
             
-        msg = "🛍 **فروشگاه سرویس‌ها**\nانتخاب کنید:"
-        kb = [[InlineKeyboardButton(f"📁 {c.name}", callback_data=f"usr_cat_{c.id}")] for c in cats]
-        for p in prods: kb.append([InlineKeyboardButton(f"🛒 خرید {p.name} ({p.price}T)", callback_data=f"buyprod_{p.id}")])
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        msg = "🛍 <b>فروشگاه سرویس‌ها</b>\nانتخاب کنید:"
+        kb = [[InlineKeyboardButton(f"📁 {escape(c.name)}", callback_data=f"usr_cat_{c.id}")] for c in cats]
+        for p in prods: kb.append([InlineKeyboardButton(f"🛒 خرید {escape(p.name)} ({p.price:,.0f}T)", callback_data=f"buyprod_{p.id}")])
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
 
     elif text == "💰 کیف پول":
         # Fake a query-like flow for wallet by sending message instead
@@ -160,9 +162,9 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with AsyncSessionLocal() as session:
             user = (await session.execute(select(User).where(User.telegram_id == update.effective_user.id))).scalars().first()
             bal = user.wallet_balance if user else 0.0
-        msg = f"💰 **کیف پول شما**\nموجودی فعلی: `{bal:,.0f} تومان`\n\nبرای شارژ حساب روی دکمه زیر کلیک کنید."
+        msg = f"💰 <b>کیف پول شما</b>\nموجودی فعلی: <code>{bal:,.0f} تومان</code>\n\nبرای شارژ حساب روی دکمه زیر کلیک کنید."
         keyboard = [[InlineKeyboardButton("➕ شارژ حساب", callback_data="wallet_add")], [InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         
     elif "حساب کاربری" in text or "حساب من" in text:
         bot_un = context.bot.username
@@ -199,14 +201,15 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from database.models import Order
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
-            msg = "🌐 **سرویس‌های من**\n\n"
+            msg = "🌐 <b>سرویس‌های من</b>\n\n"
             keys = []
             if not services: msg += "شما هیچ سرویس فعالی ندارید!"
             else:
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                     status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
-                    msg += f"{idx}. سرور: {s.panel_username or 'سرویس متفرقه'}\n"
+                    p_name = escape(s.panel_username or 'سرویس متفرقه')
+                    msg += f"{idx}. سرور: {p_name}\n"
                     msg += f"وضعیت: {status} | انقضا: {exp}\n"
                     msg += "➖➖➖➖➖➖\n"
                     
@@ -220,7 +223,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if s.status == "ACTIVE":
                         keys.append([InlineKeyboardButton(f"🔄 تمدید سرویس #{idx}", callback_data=f"renew_svc_{s.id}")])
             
-            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
             
     elif "مدیریت" in text:
         from handlers.admin import admin_panel
@@ -264,13 +267,13 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not configs:
                 await update.message.reply_text("در حال حاضر کانفیگ رایگانی در دسترس نیست.")
             else:
-                msg = "❤️‍🔥 **لیست کانفیگ‌های رایگان فعال**\nلطفاً یکی از سرورهای زیر را انتخاب کنید:"
+                msg = "❤️‍🔥 <b>لیست کانفیگ‌های رایگان فعال</b>\nلطفاً یکی از سرورهای زیر را انتخاب کنید:"
                 keys = []
                 for c in configs:
-                    name = c.title or c.country or f"سرور شماره {c.id}"
+                    name = escape(c.title or c.country or f"سرور شماره {c.id}")
                     keys.append([InlineKeyboardButton(f"🌐 {name}", callback_data=f"free_select_{c.id}")])
                 
-                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys))
+                await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys))
 
 async def free_config_detail_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -286,24 +289,27 @@ async def free_config_detail_handler(update: Update, context: ContextTypes.DEFAU
             return
 
         config_text = c.config_data
-        msg = f"🎁 **کانفیگ رایگان: {c.title or 'بدون نام'}**\n\nکشور: {c.country}\nتوضیحات: {c.description}\n\n"
+        c_title = escape(c.title or 'بدون نام')
+        c_country = escape(c.country or 'نامشخص')
+        c_desc = escape(c.description or 'ندارد')
+        msg = f"🎁 <b>کانفیگ رایگان: {c_title}</b>\n\nکشور: {c_country}\nتوضیحات: {c_desc}\n\n"
         
         links = [l.strip() for l in config_text.strip().split('\n') if l.strip()]
         is_v2ray = any(l.startswith('vless://') or l.startswith('vmess://') for l in links)
         
         btn_list = []
         if is_v2ray:
-            msg += f"لینک/کد:\n`{config_text}`"
+            msg += f"لینک/کد:\n<code>{escape(config_text)}</code>"
             if len(config_text) <= 256:
                 btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
         else:
             for i, link in enumerate(links, 1):
-                msg += f"🔗 لینک {i}:\n`{link}`\n\n"
+                msg += f"🔗 لینک {i}:\n<code>{escape(link)}</code>\n\n"
                 if len(link) <= 256:
                     btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
         
         btn_list.append([InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="back_to_free_list")])
-        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btn_list))
+        await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_list))
 
 async def back_to_free_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -316,13 +322,13 @@ async def back_to_free_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("در حال حاضر کانفیگ رایگانی در دسترس نیست.")
             return
             
-        msg = "❤️‍🔥 **لیست کانفیگ‌های رایگان فعال**\nلطفاً یکی از سرورهای زیر را انتخاب کنید:"
+        msg = "❤️‍🔥 <b>لیست کانفیگ‌های رایگان فعال</b>\nلطفاً یکی از سرورهای زیر را انتخاب کنید:"
         keys = []
         for c in configs:
-            name = c.title or c.country or f"سرور شماره {c.id}"
+            name = escape(c.title or c.country or f"سرور شماره {c.id}")
             keys.append([InlineKeyboardButton(f"🌐 {name}", callback_data=f"free_select_{c.id}")])
         
-        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys))
+        await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys))
 
 
 

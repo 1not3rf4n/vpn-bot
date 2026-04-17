@@ -14,19 +14,20 @@ async def admin_discounts_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         res = await session.execute(select(DiscountCode))
         codes = res.scalars().all()
 
+    from html import escape
     keys = []
-    text = "🎁 **مدیریت کدهای تخفیف**\nلیست کدهای موجود:\n"
+    text = "🎁 <b>مدیریت کدهای تخفیف</b>\nلیست کدهای موجود:\n"
     if not codes:
         text += "(هیچ کدی ثبت نشده است)\n"
     else:
         for c in codes:
-            text += f"- `{c.code}`: {c.percent}% (استفاده: {c.used_count}/{c.max_uses})\n"
+            text += f"- <code>{escape(c.code)}</code>: {c.percent}% (استفاده: {c.used_count}/{c.max_uses})\n"
             keys.append([InlineKeyboardButton(f"🗑 حذف کد {c.code}", callback_data=f"del_discount_{c.id}")])
 
     keys.append([InlineKeyboardButton("➕ افزودن کد جدید", callback_data="add_discount_code")])
     keys.append([InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")])
-    if query: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
-    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    if query: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 # ----- Add discount -----
 async def start_add_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):

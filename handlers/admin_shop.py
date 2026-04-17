@@ -32,20 +32,22 @@ async def admin_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, par
             res = await session.execute(select(Product).where(Product.category_id == parent_id))
             products = res.scalars().all()
 
-    text = f"🗂 **مدیریت فروشگاه**\n\n📌 موقعیت: {'خانه' if not current_cat else current_cat.name}\nانتخاب کنید:"
+    from html import escape
+    cat_name = escape(current_cat.name) if current_cat else 'خانه'
+    text = f"🗂 <b>مدیریت فروشگاه</b>\n\n📌 موقعیت: {cat_name}\nانتخاب کنید:"
     keyboard = []
 
     for c in sub_cats:
         c_status = "🟢" if c.is_active else "🔴"
         keyboard.append([
-            InlineKeyboardButton(f"📁 {c.name}", callback_data=f"adm_cat_{c.id}"),
+            InlineKeyboardButton(f"📁 {escape(c.name)}", callback_data=f"adm_cat_{c.id}"),
             InlineKeyboardButton(c_status, callback_data=f"adm_tggl_c_{c.id}"),
             InlineKeyboardButton("🗑", callback_data=f"adm_delc_{c.id}")
         ])
 
     for p in products:
         p_status = "🟢" if p.is_active else "🔴"
-        keyboard.append([InlineKeyboardButton(f"🛒 {p.name}", callback_data=f"adm_prod_{p.id}"), InlineKeyboardButton(
+        keyboard.append([InlineKeyboardButton(f"🛒 {escape(p.name)}", callback_data=f"adm_prod_{p.id}"), InlineKeyboardButton(
             p_status, callback_data=f"adm_tggl_p_{p.id}")])
 
     # Actions
@@ -69,9 +71,9 @@ async def admin_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, par
 
     try:
         if query:
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         else:
-            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     except:
         pass
 
@@ -269,6 +271,7 @@ async def admin_prod_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("محصول یافت نشد.")
             return ConversationHandler.END
 
+    from html import escape
     v2_label = ""
     if p.product_type == 'V2RAY':
         vol_txt = f"{p.volume_gb} GB" if p.volume_gb > 0 else "نامحدود"
@@ -276,7 +279,7 @@ async def admin_prod_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         v2_label = "\n🔌 نوع: فروش عادی"
     
-    text = f"📦 مدیریت محصول: {p.name}\n\nوضعیت: {'🟢 روشن' if p.is_active else '🔴 خاموش'}\nقیمت: {p.price:,.0f} تومان\nمدت اعتبار: {p.duration_days} روز{v2_label}\nتوضیحات: {p.description or 'ندارد'}\n\nجهت ویرایش انتخاب کنید:"
+    text = f"📦 <b>مدیریت محصول: {escape(p.name)}</b>\n\nوضعیت: {'🟢 روشن' if p.is_active else '🔴 خاموش'}\nقیمت: {p.price:,.0f} تومان\nمدت اعتبار: {p.duration_days} روز{v2_label}\nتوضیحات: {escape(p.description or 'ندارد')}\n\nجهت ویرایش انتخاب کنید:"
     keys = [
         [InlineKeyboardButton(
             f"وضعیت (تغییر): {'روشن✅' if p.is_active else 'خاموش❌'}", callback_data=f"adm_tggl_p_{p.id}")],
@@ -290,11 +293,9 @@ async def admin_prod_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if p.product_type == 'V2RAY':
         keys.append([InlineKeyboardButton("🔌 تغییر Inbound ID", callback_data=f"adm_editp_inb_{p.id}"),
                      InlineKeyboardButton("📦 تغییر حجم", callback_data=f"adm_editp_vol_{p.id}")])
-    keys.append([InlineKeyboardButton(
-            "🗑 حذف محصول", callback_data=f"adm_delp_{p.id}")])
     keys.append([InlineKeyboardButton("🔙 بازگشت به پوشه",
                               callback_data=f"adm_cat_{p.category_id}")])
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys))
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 
 async def start_edit_prod(update: Update, context: ContextTypes.DEFAULT_TYPE, prop: str):

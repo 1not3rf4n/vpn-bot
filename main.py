@@ -31,7 +31,9 @@ async def post_init(application):
     
     import asyncio
     from jobs.renewal import smart_renewal_job
+    from jobs.cleanup import free_config_cleanup_job
     asyncio.create_task(smart_renewal_job(application))
+    asyncio.create_task(free_config_cleanup_job(application))
     
     logger.info("Bot is ready to rock!")
 
@@ -72,7 +74,7 @@ def main():
         application.add_handler(handler)
 
     # General Callbacks
-    application.add_handler(CallbackQueryHandler(admin_callbacks, pattern="^admin_panel|admin_cancel|admin_stats|admin_recent_orders"))
+    application.add_handler(CallbackQueryHandler(admin_callbacks, pattern="^admin_(panel|cancel|stats|recent_orders|broadcast|free_configs)"))
     
     for rt in get_settings_routers(): application.add_handler(rt)
     for rt in get_admin_shop_routers(): application.add_handler(rt)

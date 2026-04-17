@@ -26,14 +26,16 @@ async def shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id
             res = await session.execute(select(Product).where(Product.category_id == parent_id).where(Product.is_active == True))
             products = res.scalars().all()
 
-    text = f"🛍 **فروشگاه سرویس‌ها**\n\n📌 بخش: {'دسته اصلی' if not current_cat else current_cat.name}\nانتخاب کنید:"
+    from html import escape
+    cat_name = escape(current_cat.name) if current_cat else 'دسته اصلی'
+    text = f"🛍 <b>فروشگاه سرویس‌ها</b>\n\n📌 بخش: {cat_name}\nانتخاب کنید:"
     keyboard = []
     
     for c in sub_cats:
-        keyboard.append([InlineKeyboardButton(f"📁 {c.name}", callback_data=f"usr_cat_{c.id}")])
+        keyboard.append([InlineKeyboardButton(f"📁 {escape(c.name)}", callback_data=f"usr_cat_{c.id}")])
     
     for p in products:
-        keyboard.append([InlineKeyboardButton(f"🛒 خرید {p.name} ({p.price:,.0f} تومان)", callback_data=f"buyprod_{p.id}")])
+        keyboard.append([InlineKeyboardButton(f"🛒 خرید {escape(p.name)} ({p.price:,.0f} تومان)", callback_data=f"buyprod_{p.id}")])
 
     if parent_id and current_cat and current_cat.parent_id:
         keyboard.append([InlineKeyboardButton("⬆️ بالاتر", callback_data=f"usr_cat_{current_cat.parent_id}")])
@@ -43,9 +45,9 @@ async def shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id
     keyboard.append([InlineKeyboardButton("🔙 بازگشت به خانه", callback_data="start_menu")])
     
     if query:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def shop_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -213,29 +215,31 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await query.edit_message_text("هیچ شبکه ارزی در حال حاضر فعال نیست.")
                 return ConversationHandler.END
             
-            text = f"مبلغ قابل پرداخت: **{final_price_usd} دلار** (رمزارز)\nبه یکی از آدرس‌های زیر واریز کنید:\n\n"
+            from html import escape
+            text = f"مبلغ قابل پرداخت: <b>{final_price_usd} دلار</b> (رمزارز)\nبه یکی از آدرس‌های زیر واریز کنید:\n\n"
             copy_keys = [[InlineKeyboardButton("💰 کپی مبلغ", copy_text=CopyTextButton(text=str(final_price_usd)))]]
             for n in nets:
-                text += f"🔹 {n.name}:\n`{n.address}`\n\n"
-                copy_keys.append([InlineKeyboardButton(f"📋 کپی آدرس {n.name}", copy_text=CopyTextButton(text=n.address))])
-            text += "پس از واریز، **عکس رسید** تراکنش را ارسال کنید."
+                text += f"🔹 {escape(n.name)}:\n<code>{escape(n.address)}</code>\n\n"
+                copy_keys.append([InlineKeyboardButton(f"📋 کپی آدرس {escape(n.name)}", copy_text=CopyTextButton(text=n.address))])
+            text += "پس از واریز، <b>عکس رسید</b> تراکنش را ارسال کنید."
             
             context.user_data['checkout_pay_method'] = 'CRYPTO'
             copy_keys.append(CANCEL_BTN[0])
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(copy_keys))
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(copy_keys))
             return WAIT_SHOP_RECEIPT
             
         elif query.data == "shop_pay_card":
             from telegram import CopyTextButton
+            from html import escape
             card_num = await settings.get_setting("admin_card", "نامشخص")
-            text = f"مبلغ قابل پرداخت: **{final_price:,.0f} تومان**\nشماره کارت:\n`{card_num}`\n\n**عکس رسید پرداختی** را ارسال کنید."
+            text = f"مبلغ قابل پرداخت: <b>{final_price:,.0f} تومان</b>\nشماره کارت:\n<code>{card_num}</code>\n\n<b>عکس رسید پرداختی</b> را ارسال کنید."
             context.user_data['checkout_pay_method'] = 'CARD'
             keys = [
                 [InlineKeyboardButton("📋 کپی شماره کارت", copy_text=CopyTextButton(text=card_num)),
                  InlineKeyboardButton("💰 کپی مبلغ", copy_text=CopyTextButton(text=str(int(final_price))))],
                 CANCEL_BTN[0]
             ]
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys))
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys))
             return WAIT_SHOP_RECEIPT
 
         elif query.data == "shop_pay_wallet":
@@ -325,20 +329,24 @@ async def shop_receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         await session.flush()
         receipt_id = receipt.id
         
+        from html import escape
         if pay_method == "CRYPTO":
-            amt_str = f"{amt} دلار"
+            amt_str = f"{final_price_usd} دلار"
         else:
-            amt_str = f"{amt:,.0f} تومان"
+            amt_str = f"{final_price:,.0f} تومان"
             
-        uname = f" (@{update.effective_user.username})" if update.effective_user.username else ""
-        admin_text = f"🛒 **درخواست خرید محصول (پرداخت مستقیم)**\nکاربر: {update.effective_user.full_name}{uname}\nمحصول: {product.name}\nمبلغ پرداخت: {amt_str}\nآیدی رسید: #O{receipt_id}"
+        u_name = escape(update.effective_user.full_name)
+        u_user = f" (@{escape(update.effective_user.username)})" if update.effective_user.username else ""
+        p_name = escape(product.name if product else "حذف شده")
+        
+        admin_text = f"🛒 <b>درخواست خرید محصول (پرداخت مستقیم)</b>\nکاربر: {u_name}{u_user}\nمحصول: {p_name}\nمبلغ پرداخت: {amt_str}\nآیدی رسید: #O{receipt_id}"
         keys = [
             [InlineKeyboardButton("✅ تایید سند", callback_data=f"verify_receipt_{receipt_id}")],
             [InlineKeyboardButton("❌ رد سند", callback_data=f"reject_receipt_{receipt_id}")]
         ]
         admins = (await session.execute(select(User).where(User.is_admin == True))).scalars().all()
         for ad in admins:
-            try: await context.bot.send_photo(chat_id=ad.telegram_id, photo=photo_id, caption=admin_text, reply_markup=InlineKeyboardMarkup(keys))
+            try: await context.bot.send_photo(chat_id=ad.telegram_id, photo=photo_id, caption=admin_text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
             except: pass
             
         await session.commit()

@@ -18,12 +18,12 @@ async def wallet_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = result.scalars().first()
         bal = user.wallet_balance if user else 0.0
 
-    text = f"💰 **کیف پول شما**\nموجودی فعلی: `{bal}` تومان\n\nبرای شارژ حساب روی دکمه زیر کلیک کنید."
+    text = f"💰 <b>کیف پول شما</b>\nموجودی فعلی: <code>{bal:,.0f}</code> تومان\n\nبرای شارژ حساب روی دکمه زیر کلیک کنید."
     keyboard = [
         [InlineKeyboardButton("➕ شارژ حساب", callback_data="wallet_add")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]
     ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def request_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -68,13 +68,13 @@ async def handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from telegram import CopyTextButton
         card_num = await settings.get_setting("admin_card", "نامشخص")
         amount = context.user_data.get('top_up_amount', 0)
-        text = f"لطفا مبلغ **{amount:,.0f} تومان** را به شماره کارت زیر واریز کنید:\n\n`{card_num}`\n\nپس از واریز، **عکس فیش پرداختی** را دقیقاً همینجا ارسال کنید."
+        text = f"لطفا مبلغ <b>{amount:,.0f} تومان</b> را به شماره کارت زیر واریز کنید:\n\n<code>{card_num}</code>\n\nپس از واریز، <b>عکس فیش پرداختی</b> را دقیقاً همینجا ارسال کنید."
         keys = [
             [InlineKeyboardButton("📋 کپی شماره کارت", copy_text=CopyTextButton(text=card_num)),
              InlineKeyboardButton("💰 کپی مبلغ", copy_text=CopyTextButton(text=str(amount)))],
             CANCEL_BTN[0]
         ]
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keys))
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys))
         return SEND_RECEIPT
         
     elif query.data == "pay_crypto":
@@ -90,15 +90,15 @@ async def handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
             usd_rate = float(await settings.get_setting("usd_exchange_rate", "65000"))
             amount_usd = round(amount / usd_rate, 1) if amount > 0 else 0.0
             
-            text = f"لطفا مبلغ **{amount_usd} دلار** (معادل {amount:,.0f} تومان) را به یکی از آدرس‌های زیر واریز کنید:\n\n"
+            text = f"لطفا مبلغ <b>{amount_usd} دلار</b> (معادل {amount:,.0f} تومان) را به یکی از آدرس‌های زیر واریز کنید:\n\n"
             copy_keys = [[InlineKeyboardButton("💰 کپی مبلغ", copy_text=CopyTextButton(text=str(amount_usd)))]]
             for n in nets:
-                text += f"🔹 شبکه {n.name} ({n.network}):\n`{n.address}`\n\n"
+                text += f"🔹 شبکه {n.name} ({n.network}):\n<code>{n.address}</code>\n\n"
                 copy_keys.append([InlineKeyboardButton(f"📋 کپی آدرس {n.name}", copy_text=CopyTextButton(text=n.address))])
-            text += "پس از واریز، **عکس رسید تراکنش** را دقیقاً همینجا ارسال کنید."
+            text += "پس از واریز، <b>عکس رسید تراکنش</b> را دقیقاً همینجا ارسال کنید."
             
         copy_keys.append(CANCEL_BTN[0])
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(copy_keys))
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(copy_keys))
         return SEND_RECEIPT
 
 async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -176,7 +176,7 @@ async def admin_receipts_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     async with AsyncSessionLocal() as session:
         receipts = (await session.execute(select(Receipt).where(Receipt.status == "PENDING").order_by(Receipt.id.desc()).limit(10))).scalars().all()
         
-    text = "🧾 **صندوق فیش‌های بررسی‌نشده**\nتعداد فیش‌های منتظر تایید (حداکثر 10 مورد):"
+    text = "🧾 <b>صندوق فیش‌های بررسی‌نشده</b>\nتعداد فیش‌های منتظر تایید (حداکثر 10 مورد):"
     if not receipts:
         text = "هیچ فیش منتظر تاییدی وجود ندارد."
         
@@ -283,21 +283,23 @@ async def user_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database.models import Order
         orders = (await session.execute(select(Order).where(Order.user_id == user_db.id).order_by(Order.id.desc()).limit(10))).scalars().all()
         
-    text = "🧾 **تاریخچه تراکنش‌های اخیر شما:**\n\n"
+    text = "🧾 <b>تاریخچه تراکنش‌های اخیر شما:</b>\n\n"
     if not orders:
         text += "هیچ سفارشی یافت نشد."
     else:
         for o in orders:
-            text += f"🔸 سفارش `#{o.id}`\nمبلغ: {o.amount:,.0f} تومان\nوضعیت: {o.status}\nتوضیحات: {o.payment_method}\n➖➖➖➖➖\n"
+            status_fa = {"PAID": "✅ موفق", "PENDING": "⏳ در انتظار", "CANCELED": "❌ لغو شده", "REJECTED": "🔴 رد شده"}.get(o.status, o.status)
+            text += f"🔸 سفارش <code>#{o.id}</code>\nمبلغ: {o.amount:,.0f} تومان\nوضعیت: {status_fa}\nتوضیحات: {o.payment_method}\n➖➖➖➖➖\n"
             
     async with AsyncSessionLocal() as session:
         receipts = (await session.execute(select(Receipt).where(Receipt.user_id == user_db.id).where(Receipt.receipt_type == 'TOPUP').order_by(Receipt.id.desc()).limit(5))).scalars().all()
     if receipts:
-        text += "\n💸 **۵ فیش شارژ اخیر:**\n\n"
+        text += "\n💸 <b>۵ فیش شارژ اخیر:</b>\n\n"
         for r in receipts:
-            text += f"🔹 فیش `#{r.id}` | {r.amount:,.0f} تومان | وضعیت: {r.status}\n"
+            status_fa = {"APPROVED": "✅ تایید شده", "PENDING": "⏳ در انتظار", "REJECTED": "❌ رد شده"}.get(r.status, r.status)
+            text += f"🔹 فیش <code>#{r.id}</code> | {r.amount:,.0f} تومان | وضعیت: {status_fa}\n"
             
-    await update.effective_message.reply_text(text, parse_mode="Markdown")
+    await update.effective_message.reply_text(text, parse_mode="HTML")
 
 def get_wallet_routers():
     from telegram.ext import CallbackQueryHandler

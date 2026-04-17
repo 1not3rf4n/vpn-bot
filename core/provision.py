@@ -65,7 +65,7 @@ async def provision_order_and_notify(order_id: int, bot):
                     direct_link = await client.build_direct_link(inbound_id, uuid_res, remark)
                     if direct_link:
                         config_link = direct_link
-                        delivery_note = f"✅ سرور شما با موفقیت ساخته شد!\n\nلینک مستقیم اتصال:\n\n{direct_link}"
+                        delivery_note = f"✅ سرور شما با موفقیت ساخته شد!\n\n<b>لینک مستقیم اتصال:</b>\n\n<code>{direct_link}</code>"
                         logger.info(f"V2RAY provisioned OK: email={email}")
                     else:
                         delivery_note = "❌ سرور ساخته شد ولی لینک ساخته نشد. لطفا به پشتیبانی پیام دهید."
@@ -81,18 +81,20 @@ async def provision_order_and_notify(order_id: int, bot):
         await session.commit()
         
         try:
+            from html import escape
             raw_msg = await get_setting("order_confirm_msg", "✅ سفارش شما تایید شد.\n\nکد اشتراک: {sub_code}\nمحصول: {product_name}")
-            text = raw_msg.replace("{sub_code}", sub_code).replace("{product_name}", str(product.name if product else 'محصول'))
+            p_name = escape(str(product.name if product else 'محصول'))
+            text = raw_msg.replace("{sub_code}", f"<code>{sub_code}</code>").replace("{product_name}", f"<b>{p_name}</b>")
             
             if config_link:
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
                 keys = InlineKeyboardMarkup([
                     [InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_link))]
                 ])
-                final_text = f"{text}\n\n➖➖➖➖➖\n📦 تحویل سرویس:\n\n✅ سرور ساخته شد!\n\nلینک مستقیم (کپی کنید):\n\n`{config_link}`"
-                await bot.send_message(user.telegram_id, final_text, parse_mode="Markdown", reply_markup=keys)
+                final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n✅ سرور ساخته شد!\n\n<b>لینک مستقیم (کپی کنید):</b>\n\n<code>{config_link}</code>"
+                await bot.send_message(user.telegram_id, final_text, parse_mode="HTML", reply_markup=keys)
             else:
-                final_text = f"{text}\n\n➖➖➖➖➖\n📦 تحویل سرویس:\n\n{delivery_note}"
-                await bot.send_message(user.telegram_id, final_text)
+                final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n{delivery_note}"
+                await bot.send_message(user.telegram_id, final_text, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Error sending confirm: {e}")

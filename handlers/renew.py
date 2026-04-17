@@ -46,17 +46,18 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ هیچ پلن تمدیدی در دسترس نیست.")
             return ConversationHandler.END
         
+        from html import escape
         exp = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"
-        text = f"🔄 **تمدید سرویس**\n\nسرویس: {svc.panel_username}\nانقضای فعلی: {exp}\n\nیک پلن تمدید انتخاب کنید:\n"
+        text = f"🔄 <b>تمدید سرویس</b>\n\nسرویس: <code>{escape(svc.panel_username or 'نامشخص')}</code>\nانقضای فعلی: {exp}\n\nیک پلن تمدید انتخاب کنید:\n"
         
         keys = []
         for p in v2_products:
             vol_txt = f"{p.volume_gb}GB" if p.volume_gb > 0 else "نامحدود"
-            label = f"📦 {p.name} | {p.duration_days} روز | {vol_txt} | {p.price:,.0f}T"
+            label = f"📦 {escape(p.name)} | {p.duration_days} روز | {vol_txt} | {p.price:,.0f}T"
             keys.append([InlineKeyboardButton(label, callback_data=f"renew_plan_{p.id}")])
         
         keys.append(CANCEL_BTN[0])
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
         return RENEW_CHOOSE_PLAN
 
 
@@ -78,10 +79,11 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         context.user_data['renew_prod_id'] = prod_id
         
+        from html import escape
         vol_txt = f"{product.volume_gb}GB" if product.volume_gb > 0 else "نامحدود"
         text = (
-            f"🔄 **تایید تمدید**\n\n"
-            f"پلن: {product.name}\n"
+            f"🔄 <b>تایید تمدید</b>\n\n"
+            f"پلن: {escape(product.name)}\n"
             f"مدت: {product.duration_days} روز\n"
             f"حجم: {vol_txt}\n"
             f"قیمت: {product.price:,.0f} تومان\n\n"
@@ -101,7 +103,7 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CANCEL_BTN[0]
             ]
         
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
         return RENEW_CONFIRM
 
 
@@ -205,6 +207,7 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await session.commit()
         
+        from html import escape
         exp_str = svc.expire_date.strftime("%Y-%m-%d")
         vol_txt = f"{product.volume_gb}GB" if product.volume_gb > 0 else "نامحدود"
         
@@ -212,15 +215,15 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         panel_note = "سرور پنل آپدیت شد." if xui_result else "آپدیت پنل انجام نشد؛ لطفا به پشتیبانی اطلاع دهید."
         
         text = (
-            f"🔄 **تمدید انجام شد!**\n\n"
+            f"🔄 <b>تمدید انجام شد!</b>\n\n"
             f"{result_msg} {panel_note}\n\n"
-            f"پلن: {product.name}\n"
+            f"پلن: {escape(product.name)}\n"
             f"حجم جدید: {vol_txt}\n"
-            f"انقضای جدید: {exp_str}\n"
+            f"انقضای جدید: <code>{exp_str}</code>\n"
             f"مبلغ کسر شده: {product.price:,.0f} تومان"
         )
         
-        await query.edit_message_text(text, parse_mode="Markdown")
+        await query.edit_message_text(text, parse_mode="HTML")
     
     return ConversationHandler.END
 

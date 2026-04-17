@@ -21,7 +21,7 @@ async def settings_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
 
-    text = "⚙️ **تنظیمات پیشرفته ربات**\nجهت تغییر هر یک از موارد زیر روی آن کلیک کنید:"
+    text = "⚙️ <b>تنظیمات پیشرفته ربات</b>\nجهت تغییر هر یک از موارد زیر روی آن کلیک کنید:"
     keyboard = [
         [InlineKeyboardButton("📝 پیام استارت", callback_data="set_start_msg")],
         [InlineKeyboardButton("📢 قفل کانال اجباری", callback_data="set_channel")],
@@ -33,9 +33,9 @@ async def settings_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")]
     ]
     if query: 
-        try: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        try: await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         except: pass
-    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def req_start_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -155,12 +155,13 @@ async def req_xui_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with AsyncSessionLocal() as session:
         panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
         
-    text = "**🔌 مدیریت سرور X-UI**\n\n"
+    from html import escape
+    text = "🔌 <b>مدیریت سرور X-UI</b>\n\n"
     if panel_db:
-        text += f"وضعیت فعلی: **متصل / ثبت شده**\nسایت: `{panel_db.url}`\nیوزر نیم قبلی: `{panel_db.username}`\n\n"
+        text += f"وضعیت فعلی: <b>متصل / ثبت شده</b>\nسایت: <code>{escape(panel_db.url)}</code>\nیوزر نیم قبلی: <code>{escape(panel_db.username)}</code>\n\n"
         
-    text += "برای ثبت یا آپدیت پنل، لطفاً آدرس کامل پنل را بفرستید:\nمثلاً `http://1.1.1.1:2082`"
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="Markdown")
+    text += "برای ثبت یا آپدیت پنل، لطفاً آدرس کامل پنل را بفرستید:\nمثلاً <code>http://1.1.1.1:2082</code>"
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
     return WAIT_XUI_URL
 
 async def save_xui_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -208,7 +209,7 @@ async def admin_global_toggles(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton(f"کانفیگ رایگان: {'روشن✅' if free == 'on' else 'خاموش❌'}", callback_data="toggle_menu_free")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_settings_menu")]
     ]
-    await query.edit_message_text("مدیریت کلیدهای منوی اصلی کاربر:", reply_markup=InlineKeyboardMarkup(keys))
+    await query.edit_message_text("مدیریت کلیدهای منوی اصلی کاربر:", reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def handle_toggle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

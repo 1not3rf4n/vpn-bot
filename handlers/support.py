@@ -142,7 +142,7 @@ async def admin_tickets_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
     async with AsyncSessionLocal() as session:
         tickets = (await session.execute(select(Ticket).where(Ticket.status == "OPEN").order_by(Ticket.id.desc()).limit(10))).scalars().all()
     
-    text = "🎫 **صندوق تیکت‌های باز**\nتیکت‌های منتظر پاسخ (حداکثر 10 مورد آخر):"
+    text = "🎫 <b>صندوق تیکت‌های باز</b>\nتیکت‌های منتظر پاسخ (حداکثر 10 مورد آخر):"
     keys = []
     for t in tickets:
         keys.append([InlineKeyboardButton(f"#{t.id} - ({t.department}) - 👤 مشاهده", callback_data=f"admin_view_ticket_{t.id}")])
@@ -166,6 +166,7 @@ async def admin_view_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         from html import escape
+        user_db = (await session.execute(select(User).where(User.id == ticket.user_id))).scalars().first()
         u_name = escape(user_db.fullname or "نامشخص")
         if user_db.username:
             u_user = escape(user_db.username)
@@ -203,18 +204,20 @@ async def my_tickets_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not user_db: return
         tickets = (await session.execute(select(Ticket).where(Ticket.user_id == user_db.id).order_by(Ticket.id.desc()).limit(5))).scalars().all()
         
-    text = "🎫 **تیکت‌های اخیر شما:**\n\n"
+    text = "🎫 <b>تیکت‌های اخیر شما:</b>\n\n"
     if not tickets:
-        text += "شما تا کنون باشتیبانی ارتباط نداشته‌اید."
+        text += "شما تا کنون با پشتیبانی ارتباط نداشته‌اید."
     else:
+        from html import escape
         for t in tickets:
-            text += f"🔹 تیکت `#{t.id}` | دپارتمان: {t.department}\n"
-            text += f"وضعیت: {'🟢 باز' if t.status == 'OPEN' else '🔴 بسته'}\n"
+            status_dot = '🟢 باز' if t.status == 'OPEN' else '🔴 بسته'
+            text += f"🔹 تیکت <code>#{t.id}</code> | دپارتمان: {escape(t.department)}\n"
+            text += f"وضعیت: {status_dot}\n"
             if t.reply:
-                text += f"پاسخ پشتیبان:\n_{t.reply}_\n"
+                text += f"پاسخ پشتیبان:\n<i>{escape(t.reply)}</i>\n"
             text += "➖➖➖➖➖\n"
             
-    await update.effective_message.reply_text(text, parse_mode="Markdown")
+    await update.effective_message.reply_text(text, parse_mode="HTML")
 
 def get_support_routers():
     return [

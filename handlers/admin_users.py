@@ -13,8 +13,8 @@ WAIT_ORDER_SEARCH = 66
 async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    text = "🔍 **جستجوی کاربر**\n\nلطفاً آیدی عددی کاربر و یا یوزرنیم وی را (با @ یا بدون @) ارسال کنید:"
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+    text = "🔍 <b>جستجوی کاربر</b>\n\nلطفاً آیدی عددی کاربر و یا یوزرنیم وی را (با @ یا بدون @) ارسال کنید:"
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
 async def render_user_profile(user, message_obj, is_edit=False):
     async with AsyncSessionLocal() as session:
         orders = (await session.execute(select(Order).where(Order.user_id == user.id))).scalars().all()
@@ -136,20 +136,8 @@ async def mgmt_user_svcs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("این کاربر هیچ سرویسی ندارد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
         return ConversationHandler.END
         
-    text = f"⚙️ **سرویس‌های کاربر {user.telegram_id}**\n\n"
-    keys = []
-    
-    for s in services:
-        exp_st = s.expire_date.strftime('%Y-%m-%d') if s.expire_date else 'نامشخص'
-        text += f"🔹 کد #{s.id} | وضعیت: {s.status} | انقضا: {exp_st}\n"
-        row = [
-            InlineKeyboardButton(f"تمدید ۳۰ روزه (#{s.id})", callback_data=f"adm_rensvc_{s.id}"),
-            InlineKeyboardButton(f"حذف (#{s.id})", callback_data=f"adm_delsvc_{s.id}")
-        ]
-        keys.append(row)
-        
     keys.append([InlineKeyboardButton("🔙 بازگشت به نمایه", callback_data=f"adm_search_back_{user.id}")])
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys))
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     return ConversationHandler.END
 
 async def do_renew_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -197,16 +185,17 @@ async def adm_view_user_tcks(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("تیکتی از این کاربر ثبت نشده است.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
         return ConversationHandler.END
         
-    text = "✉️ **سابقه تیکت‌های کاربر:**\n\n"
+    text = "✉️ <b>سابقه تیکت‌های کاربر:</b>\n\n"
+    from html import escape
     for t in tickets:
         st = '🟢 باز' if t.status == 'OPEN' else '🔴 بسته'
-        text += f"🔹 کد `#{t.id}` | {t.department} | وضعیت: {st}\n"
-        text += f"متن: _{t.message}_\n"
-        if t.reply: text += f"پاسخ: _{t.reply}_\n"
+        text += f"🔹 کد <code>#{t.id}</code> | {escape(t.department)} | وضعیت: {st}\n"
+        text += f"متن: <i>{escape(t.message or '')}</i>\n"
+        if t.reply: text += f"پاسخ: <i>{escape(t.reply)}</i>\n"
         text += "➖➖➖➖➖\n"
         
     keys = [[InlineKeyboardButton("🔙 جستجوی مجدد کاربر", callback_data=f"adm_search_back_{u_id}")]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     return ConversationHandler.END
 
 # --- User Receipts View ---
@@ -221,16 +210,17 @@ async def adm_view_user_recs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         recs = (await session.execute(select(Receipt).where(Receipt.user_id == u_id).order_by(Receipt.id.desc()).limit(15))).scalars().all()
         
-    text = f"🧾 **آخرین فیش‌های کاربر** ({user.telegram_id})\n\n"
+    text = f"🧾 <b>آخرین فیش‌های کاربر</b> (<code>{user.telegram_id}</code>)\n\n"
     if not recs:
         text += "هیچ فیشی یافت نشد."
     for r in recs:
         typ = "شارژ" if r.receipt_type == "TOPUP" else "خرید"
-        text += f"🔹 کد فیش: `{r.id}` | وضعیت: {r.status}\nنوع: {typ} | مبلغ: {r.amount:,.0f} تومان\n"
+        status_fa = {"APPROVED": "✅ تایید شده", "PENDING": "⏳ در انتظار", "REJECTED": "❌ رد شده"}.get(r.status, r.status)
+        text += f"🔹 کد فیش: <code>{r.id}</code> | وضعیت: {status_fa}\nنوع: {typ} | مبلغ: {r.amount:,.0f} تومان\n"
         text += "➖➖➖➖➖\n"
         
     keys = [[InlineKeyboardButton("🔙 بازگشت به مشخصات", callback_data=f"adm_search_back_{u_id}")]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     return ConversationHandler.END
 
 # --- Send Message to User ---
@@ -263,8 +253,8 @@ async def adm_send_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_search_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    text = "🔎 **جستجوی سفارش / کد اشتراک**\n\nشماره سفارش را وارد کنید.\nمثال: `5` یا `SUB-5` یا `O-5`"
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="Markdown")
+    text = "🔎 <b>جستجوی سفارش / کد اشتراک</b>\n\nشماره سفارش را وارد کنید.\nمثال: <code>5</code> یا <code>SUB-5</code> یا <code>O-5</code>"
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
     return WAIT_ORDER_SEARCH
 
 async def admin_search_order_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -282,7 +272,7 @@ async def admin_search_order_result(update: Update, context: ContextTypes.DEFAUL
         from database.models import Product
         order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
         if not order:
-            await update.message.reply_text(f"❌ سفارشی با شماره `{order_id}` یافت نشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="Markdown")
+            await update.message.reply_text(f"❌ سفارشی با شماره <code>{order_id}</code> یافت نشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
             return WAIT_ORDER_SEARCH
         
         user = (await session.execute(select(User).where(User.id == order.user_id))).scalars().first()
