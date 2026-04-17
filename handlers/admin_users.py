@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 import logging
-from sqlalchemy.future import select
+from sqlalchemy import func, select
 from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket
 from handlers.admin import CANCEL_BTN, admin_panel
 from datetime import datetime, timedelta
@@ -12,6 +12,54 @@ WAIT_USER_ID = 63
 WAIT_SVC_TEXT = 64
 WAIT_SVC_DUR = 65
 WAIT_ORDER_SEARCH = 66
+WAIT_WAL_ADD = 67
+WAIT_WAL_SUB = 68
+
+async def admin_users_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query: await query.answer()
+    
+    text = "👥 <b>مدیریت کاربران</b>\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:"
+    keys = [
+        [InlineKeyboardButton("🔍 جستجوی کاربر (آیدی/یوزرنیم)", callback_data="admin_search_user")],
+        [InlineKeyboardButton("📋 لیست تمام کاربران", callback_data="admin_list_users_0")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل اصلی", callback_data="admin_panel")]
+    ]
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+
+async def admin_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[3])
+    per_page = 10
+    
+    async with AsyncSessionLocal() as session:
+        # Get total count
+        total = (await session.execute(select(func.count(User.id)))).scalar()
+        # Get users for page
+        users = (await session.execute(select(User).order_by(User.joined_at.desc()).offset(page * per_page).limit(per_page))).scalars().all()
+        
+    text = f"📋 <b>لیست کاربران (صفحه {page + 1})</b>\n\nتعداد کل: {total}\n"
+    from html import escape
+    keys = []
+    for u in users:
+        u_name = escape(u.fullname or "نامشخص")
+        keys.append([InlineKeyboardButton(f"{u_name} ({u.telegram_id})", callback_data=f"adm_search_back_{u.id}")])
+        
+    nav_btns = []
+    if page > 0:
+        nav_btns.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"admin_list_users_{page - 1}"))
+    if (page + 1) * per_page < total:
+        nav_btns.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"admin_list_users_{page + 1}"))
+    
+    if nav_btns:
+        keys.append(nav_btns)
+        
+    keys.append([InlineKeyboardButton("🔙 بازگشت به منوی مدیریت", callback_data="admin_users_menu")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -49,7 +97,7 @@ async def render_user_profile(user, message_obj, is_edit=False):
         [InlineKeyboardButton("⚙️ مشاهده/مدیریت سرویس‌ها", callback_data=f"adm_mgsvc_{user.id}")],
         [InlineKeyboardButton("🔍 سابقه تیکت‌ها", callback_data=f"adm_tcks_{user.id}"), InlineKeyboardButton("👀 فیش‌ها", callback_data=f"adm_recs_{user.id}")],
         [InlineKeyboardButton("💬 ارسال پیام ربات", callback_data=f"adm_msg_{user.id}")],
-        [InlineKeyboardButton("💰 صفر کردن کیف پول", callback_data=f"adm_resetwal_{user.id}")],
+        [InlineKeyboardButton("💰 مدیریت کیف پول", callback_data=f"adm_walmgmt_{user.id}")],
         CANCEL_BTN[0]
     ]
     
@@ -237,6 +285,64 @@ async def do_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.answer("❌ خطا: سرویس یافت نشد.")
         await admin_panel(update, context)
+
+async def admin_wallet_mgmt_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    u_id = int(query.data.split("_")[2])
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
+    
+    if not user:
+        await query.answer("کاربر یافت نشد.")
+        return
+        
+    text = f"💰 <b>مدیریت کیف پول کاربر</b>\n\nنام: {user.fullname}\nموجودی فعلی: <b>{user.wallet_balance:,.0f} تومان</b>"
+    keys = [
+        [InlineKeyboardButton("🟢 افزایش موجودی", callback_data=f"adm_waladd_{u_id}")],
+        [InlineKeyboardButton("🟡 کاهش موجودی", callback_data=f"adm_walsub_{u_id}")],
+        [InlineKeyboardButton("🔴 صفر کردن موجودی", callback_data=f"adm_walreset_{u_id}")],
+        [InlineKeyboardButton("🔙 بازگشت به پروفایل", callback_data=f"adm_search_back_{u_id}")]
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+
+async def adm_wal_action_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    u_id = int(query.data.split("_")[2])
+    action = "افزایش" if "waladd" in query.data else "کاهش"
+    context.user_data['wal_mgmt_uid'] = u_id
+    context.user_data['wal_mgmt_act'] = action
+    
+    text = f"لطفاً مبلغ مورد نظر برای <b>{action}</b> را به عدد وارد کنید:\n(مثلاً: 50000)"
+    keys = [[InlineKeyboardButton("🔙 انصراف", callback_data=f"adm_walmgmt_{u_id}")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    return WAIT_WAL_ADD if action == "افزایش" else WAIT_WAL_SUB
+
+async def adm_wal_apply_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = update.message.text.strip()
+    if not val.isdigit():
+        await update.message.reply_text("لطفا فقط عدد وارد کنید:")
+        return
+        
+    u_id = context.user_data.get('wal_mgmt_uid')
+    action = context.user_data.get('wal_mgmt_act')
+    amount = float(val)
+    
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
+        if user:
+            if action == "افزایش":
+                user.wallet_balance += amount
+            else:
+                user.wallet_balance -= amount
+            await session.commit()
+            logger.info(f"Admin {update.effective_user.id} {action}ed wallet of user {user.telegram_id} by {amount}")
+            await update.message.reply_text(f"✅ با موفقیت {action} یافت.")
+            await render_user_profile(user, update.message, is_edit=False)
+        else:
+            await update.message.reply_text("کاربر یافت نشد.")
+    return ConversationHandler.END
 
 async def adm_reset_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -439,7 +545,9 @@ def get_admin_users_conv_handler():
             WAIT_ORDER_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_search_order_result)],
             WAIT_SVC_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_manual_svc_text)],
             WAIT_SVC_DUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_manual_svc_dur)],
-            WAIT_USER_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_send_msg)]
+            WAIT_USER_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_send_msg)],
+            WAIT_WAL_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_wal_apply_change)],
+            WAIT_WAL_SUB: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_wal_apply_change)]
         },
         fallbacks=[
             CallbackQueryHandler(cancel_search, pattern="^admin_cancel$"),
@@ -450,8 +558,13 @@ def get_admin_users_conv_handler():
 
 def get_admin_users_routers():
     return [
+        CallbackQueryHandler(admin_users_main_menu, pattern="^admin_users_menu$"),
+        CallbackQueryHandler(admin_list_users, pattern="^admin_list_users_"),
         CallbackQueryHandler(mgmt_user_svcs, pattern="^adm_mgsvc_"),
         CallbackQueryHandler(do_renew_svc, pattern="^adm_rensvc_"),
+        CallbackQueryHandler(admin_wallet_mgmt_menu, pattern="^adm_walmgmt_"),
+        CallbackQueryHandler(adm_wal_action_start, pattern="^adm_waladd_|^adm_walsub_"),
+        CallbackQueryHandler(adm_reset_wallet, pattern="^adm_walreset_"),
         CallbackQueryHandler(ask_del_svc, pattern="^adm_askdelsvc_"),
         CallbackQueryHandler(do_del_svc, pattern="^adm_delsvc"),
         CallbackQueryHandler(adm_view_user_tcks, pattern="^adm_tcks_"),
