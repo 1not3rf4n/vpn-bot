@@ -49,7 +49,8 @@ async def support_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Notify admins
     for admin in config.ADMIN_IDS:
         try:
-            admin_msg = f"📩 **تیکت جدید** (#{ticket_id})\nاز طرف: {update.effective_user.full_name} ({user_id})\n\nمتن:\n{message_text}"
+            u_disp = f"{update.effective_user.full_name} (@{update.effective_user.username})" if update.effective_user.username else update.effective_user.full_name
+            admin_msg = f"📩 **تیکت جدید** (#{ticket_id})\nاز طرف: {u_disp} ({user_id})\n\nمتن:\n{message_text}"
             keyboard = [[InlineKeyboardButton("✍️ پاسخ به تیکت", callback_data=f"reply_ticket_{ticket_id}")]]
             await context.bot.send_message(admin, admin_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         except: pass
@@ -155,9 +156,9 @@ async def admin_view_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         user_db = (await session.execute(select(User).where(User.id == ticket.user_id))).scalars().first()
-        u_info = user_db.fullname or user_db.telegram_id if user_db else "Unknown"
+        u_disp = f"{user_db.fullname} (@{user_db.username})" if user_db and user_db.username else (user_db.fullname if user_db else "Unknown")
         
-    text = f"🎫 **مشاهده تیکت #{ticket.id}**\n\n👤 فرستنده: {u_info}\n🏢 دپارتمان: {ticket.department}\n\n📝 متن تیکت:\n{ticket.message}"
+    text = f"🎫 **مشاهده تیکت #{ticket.id}**\n\n👤 فرستنده: {u_disp}\n🏢 دپارتمان: {ticket.department}\n\n📝 متن تیکت:\n{ticket.message}"
     keys = [
         [InlineKeyboardButton("✍️ پاسخ به این تیکت", callback_data=f"reply_ticket_{ticket.id}")],
         [InlineKeyboardButton("🗑 پیام خوانده شد (بستن تیکت)", callback_data=f"close_ticket_{ticket.id}")],

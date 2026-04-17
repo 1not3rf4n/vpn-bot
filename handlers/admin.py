@@ -105,7 +105,11 @@ async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         for o in orders:
             status_fa = {"PAID": "✅ موفق", "PENDING": "⏳ در انتظار", "CANCELED": "❌ لغو شده", "REJECTED": "🔴 رد شده"}.get(o.status, o.status)
             method_fa = {"ZARINPAL": "درگاه", "WALLET": "کیف‌پول", "CARD": "کارت", "CRYPTO": "کریپتو"}.get(o.payment_method, o.payment_method)
-            uname = f"@{o.user.username}" if o.user and o.user.username else (o.user.fullname if o.user else f"ID:{o.user_id}")
+            user_obj = o.user
+            if user_obj:
+                uname = f"{user_obj.fullname} (@{user_obj.username})" if user_obj.username else user_obj.fullname
+            else:
+                uname = f"ID:{o.user_id}"
             text += f"🔹 سفارش #{o.id} | کاربر: {uname}\n"
             text += f"مبلغ: {o.amount:,.0f} تومان | روش: {method_fa}\n"
             text += f"وضعیت: {status_fa}\n➖➖➖➖➖\n"
