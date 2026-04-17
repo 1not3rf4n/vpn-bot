@@ -239,7 +239,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             referrals_count = len((await session.execute(select(User).where(User.referred_by_id == user_db.id))).scalars().all()) if user_db else 0
         
-        share_text = f"سلام با ما به اینترنت آزاد وصل شو\n{link}"
+        share_text = f"با ما به اینترنت آزاد متصل بشید ❤️\n{link}"
         
         msg = f"""🎁 **طرح دعوت از دوستان**
 
@@ -250,7 +250,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔗 لینک اختصاصی شما:
 `{link}`"""
         keyboard = [
-            [InlineKeyboardButton("📤 ارسال برای دوستان", url=f"https://t.me/share/url?url={link}&text=سلام!+از+این+ربات+عالی+VPN+استفاده+کن+👇")],
+            [InlineKeyboardButton("📤 ارسال برای دوستان", url=f"https://t.me/share/url?url={link}&text=با+ما+به+اینترنت+آزاد+متصل+بشید+❤️")],
             [InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link))]
         ]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
