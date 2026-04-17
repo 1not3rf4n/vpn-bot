@@ -309,7 +309,11 @@ async def free_config_detail_handler(update: Update, context: ContextTypes.DEFAU
                     btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
         
         btn_list.append([InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="back_to_free_list")])
-        await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_list))
+        try:
+            await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_list))
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                raise e
 
 async def back_to_free_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
