@@ -1,9 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
+import logging
 from sqlalchemy.future import select
 from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket
 from handlers.admin import CANCEL_BTN, admin_panel
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 WAIT_USER_ID = 63
 WAIT_SVC_TEXT = 64
