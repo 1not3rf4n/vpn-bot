@@ -98,6 +98,7 @@ async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         from sqlalchemy.orm import selectinload
         orders = (await session.execute(select(Order).options(selectinload(Order.user)).order_by(Order.id.desc()).limit(10))).scalars().all()
         
+    from html import escape
     text = "📋 ۱۰ سفارش اخیر ثبت شده در سیستم\n\n"
     if not orders:
         text += "هیچ سفارشی یافت نشد."
@@ -107,14 +108,16 @@ async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
             method_fa = {"ZARINPAL": "درگاه", "WALLET": "کیف‌پول", "CARD": "کارت", "CRYPTO": "کریپتو"}.get(o.payment_method, o.payment_method)
             user_obj = o.user
             if user_obj:
-                uname = f"{user_obj.fullname} (@{user_obj.username})" if user_obj.username else user_obj.fullname
+                u_name = escape(user_obj.fullname)
+                u_user = escape(user_obj.username)
+                uname = f"{u_name} (@{u_user})" if user_obj.username else u_name
             else:
                 uname = f"ID:{o.user_id}"
             text += f"🔹 سفارش #{o.id} | کاربر: {uname}\n"
             text += f"مبلغ: {o.amount:,.0f} تومان | روش: {method_fa}\n"
             text += f"وضعیت: {status_fa}\n➖➖➖➖➖\n"
             
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
 
 async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:

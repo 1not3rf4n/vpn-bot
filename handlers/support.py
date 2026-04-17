@@ -49,10 +49,13 @@ async def support_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Notify admins
     for admin in config.ADMIN_IDS:
         try:
-            u_disp = f"{update.effective_user.full_name} (@{update.effective_user.username})" if update.effective_user.username else update.effective_user.full_name
-            admin_msg = f"📩 **تیکت جدید** (#{ticket_id})\nاز طرف: {u_disp} ({user_id})\n\nمتن:\n{message_text}"
+            from html import escape
+            u_name = escape(update.effective_user.full_name)
+            u_user = escape(update.effective_user.username)
+            u_disp = f"{u_name} (@{u_user})" if update.effective_user.username else u_name
+            admin_msg = f"📩 <b>تیکت جدید</b> (#{ticket_id})\nاز طرف: {u_disp} ({user_id})\n\nمتن:\n{escape(message_text)}"
             keyboard = [[InlineKeyboardButton("✍️ پاسخ به تیکت", callback_data=f"reply_ticket_{ticket_id}")]]
-            await context.bot.send_message(admin, admin_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await context.bot.send_message(admin, admin_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         except: pass
         
     return ConversationHandler.END
@@ -155,16 +158,16 @@ async def admin_view_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("تیکت یافت نشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_tickets")]]))
             return
             
-        user_db = (await session.execute(select(User).where(User.id == ticket.user_id))).scalars().first()
-        u_disp = f"{user_db.fullname} (@{user_db.username})" if user_db and user_db.username else (user_db.fullname if user_db else "Unknown")
+        from html import escape
+        u_disp = f"{escape(user_db.fullname)} (@{escape(user_db.username)})" if user_db and user_db.username else (escape(user_db.fullname) if user_db else "Unknown")
         
-    text = f"🎫 **مشاهده تیکت #{ticket.id}**\n\n👤 فرستنده: {u_disp}\n🏢 دپارتمان: {ticket.department}\n\n📝 متن تیکت:\n{ticket.message}"
+    text = f"🎫 <b>مشاهده تیکت #{ticket.id}</b>\n\n👤 فرستنده: {u_disp}\n🏢 دپارتمنت: {ticket.department}\n\n📝 متن تیکت:\n{escape(ticket.message)}"
     keys = [
         [InlineKeyboardButton("✍️ پاسخ به این تیکت", callback_data=f"reply_ticket_{ticket.id}")],
         [InlineKeyboardButton("🗑 پیام خوانده شد (بستن تیکت)", callback_data=f"close_ticket_{ticket.id}")],
         [InlineKeyboardButton("🔙 بازگشت به لیست تیکت‌ها", callback_data="admin_tickets")]
     ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys))
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def admin_close_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

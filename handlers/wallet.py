@@ -120,8 +120,9 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receipt_id = receipt.id
         
         # Notify Admins
-        u_disp = f"{update.effective_user.full_name} (@{update.effective_user.username})" if update.effective_user.username else update.effective_user.full_name
-        admin_text = f"💰 **درخواست شارژ حساب تحویل شد**\nکاربر: {u_disp} ({user_id})\nمبلغ: {amount} تومان\nآیدی دیتابیس رسید: #T{receipt_id}"
+        from html import escape
+        u_disp = f"{escape(update.effective_user.full_name)} (@{escape(update.effective_user.username)})" if update.effective_user.username else escape(update.effective_user.full_name)
+        admin_text = f"💰 <b>درخواست شارژ حساب تحویل شد</b>\nکاربر: {u_disp} ({user_id})\nمبلغ: {amount} تومان\nآیدی دیتابیس رسید: #T{receipt_id}"
         keys = [
             [InlineKeyboardButton("✅ تایید و شارژ", callback_data=f"verify_receipt_{receipt_id}")],
             [InlineKeyboardButton("❌ رد تراکنش", callback_data=f"reject_receipt_{receipt_id}")]
@@ -130,7 +131,7 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         admins = (await session.execute(select(User).where(User.is_admin == True))).scalars().all()
         for ad in admins:
             try:
-                await context.bot.send_photo(chat_id=ad.telegram_id, photo=photo_id, caption=admin_text, reply_markup=InlineKeyboardMarkup(keys))
+                await context.bot.send_photo(chat_id=ad.telegram_id, photo=photo_id, caption=admin_text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
             except: pass
             
         await session.commit()
@@ -200,8 +201,9 @@ async def admin_view_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_db = (await session.execute(select(User).where(User.id == receipt.user_id))).scalars().first()
         
     r_type_text = "شارژ کیف پول" if receipt.receipt_type == "TOPUP" else "خرید محصول مستقیم"
-    u_disp = f"{user_db.fullname} (@{user_db.username})" if user_db.username else user_db.fullname
-    admin_text = f"🛒 **تایید فیش مالی**\nکاربر: {u_disp}\nمبلغ: {receipt.amount} تومان\nنوع فیش: {r_type_text}\nآیدی رسید: #{receipt.id}"
+    from html import escape
+    u_disp = f"{escape(user_db.fullname)} (@{escape(user_db.username)})" if user_db.username else escape(user_db.fullname)
+    admin_text = f"🛒 <b>تایید فیش مالی</b>\nکاربر: {u_disp}\nمبلغ: {receipt.amount} تومان\nنوع فیش: {r_type_text}\nآیدی رسید: #{receipt.id}"
     keys = [
         [InlineKeyboardButton("✅ تایید سند", callback_data=f"verify_receipt_{receipt.id}")],
         [InlineKeyboardButton("❌ رد", callback_data=f"reject_receipt_{receipt.id}")],
@@ -209,7 +211,7 @@ async def admin_view_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ]
     # Delete current menu message and send a photo instead
     await query.message.delete()
-    await context.bot.send_photo(chat_id=query.message.chat_id, photo=receipt.photo_id, caption=admin_text, reply_markup=InlineKeyboardMarkup(keys))
+    await context.bot.send_photo(chat_id=query.message.chat_id, photo=receipt.photo_id, caption=admin_text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def verify_receipt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

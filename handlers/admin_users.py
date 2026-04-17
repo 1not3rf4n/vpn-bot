@@ -15,8 +15,6 @@ async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     text = "🔍 **جستجوی کاربر**\n\nلطفاً آیدی عددی کاربر و یا یوزرنیم وی را (با @ یا بدون @) ارسال کنید:"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
-    return WAIT_USER_ID
-
 async def render_user_profile(user, message_obj, is_edit=False):
     async with AsyncSessionLocal() as session:
         orders = (await session.execute(select(Order).where(Order.user_id == user.id))).scalars().all()
@@ -24,10 +22,14 @@ async def render_user_profile(user, message_obj, is_edit=False):
         services = (await session.execute(select(Service).where(Service.user_id == user.id))).scalars().all()
         tickets = (await session.execute(select(Ticket).where(Ticket.user_id == user.id))).scalars().all()
         
-    text = f"👤 **اطلاعات کاربر**\n\n"
-    text += f"آیدی عددی: `{user.telegram_id}`\n"
-    text += f"نام: {user.fullname} (@{user.username})\n" if user.username else f"نام: {user.fullname}\n"
-    text += f"لینک پروفایل: [کلیک کنید](tg://user?id={user.telegram_id})\n"
+    from html import escape
+    u_name = escape(user.fullname)
+    u_user = escape(user.username) if user.username else "ندارد"
+    
+    text = f"👤 <b>اطلاعات کاربر</b>\n\n"
+    text += f"آیدی عددی: <code>{user.telegram_id}</code>\n"
+    text += f"نام: {u_name} (@{u_user})\n" if user.username else f"نام: {u_name}\n"
+    text += f"لینک پروفایل: <a href='tg://user?id={user.telegram_id}'>کلیک کنید</a>\n"
     text += f"موجودی کیف پول: {user.wallet_balance:,.0f} تومان\n\n"
     
     paid_ord = [o for o in orders if o.status == 'PAID']
@@ -293,25 +295,28 @@ async def admin_search_order_result(update: Update, context: ContextTypes.DEFAUL
     date_str = order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "نامشخص"
     product_name = product.name if product else "حذف شده"
     
-    u_disp = f"{user.fullname} (@{user.username})" if user and user.username else (user.fullname if user else 'نامشخص')
-    text = f"""🔎 **جزئیات سفارش #{order.id}**
+    from html import escape
+    u_disp = f"{escape(user.fullname)} (@{escape(user.username)})" if user and user.username else (escape(user.fullname) if user else 'نامشخص')
+    p_name = escape(product_name)
+    
+    text = f"""🔎 <b>جزئیات سفارش #{order.id}</b>
 
-👤 **کاربر:**
+👤 <b>کاربر:</b>
 نام: {u_disp}
-آیدی تلگرام: `{user.telegram_id if user else 'نامشخص'}`
-لینک: [کلیک](tg://user?id={user.telegram_id if user else 0})
+آیدی تلگرام: <code>{user.telegram_id if user else 'نامشخص'}</code>
+لینک: <a href="tg://user?id={user.telegram_id if user else 0}">کلیک</a>
 
-📦 **محصول:** {product_name}
-💰 **مبلغ:** {order.amount:,.0f} تومان
-💳 **روش پرداخت:** {method_fa}
-📊 **وضعیت:** {status_fa}
-📅 **تاریخ:** {date_str}"""
+📦 <b>محصول:</b> {p_name}
+💰 <b>مبلغ:</b> {order.amount:,.0f} تومان
+💳 <b>روش پرداخت:</b> {method_fa}
+📊 <b>وضعیت:</b> {status_fa}
+📅 <b>تاریخ:</b> {date_str}"""
 
     if receipt:
         rec_status = {"PENDING": "⏳ بررسی نشده", "APPROVED": "✅ تایید شده", "REJECTED": "❌ رد شده"}.get(receipt.status, receipt.status)
-        text += f"\n\n🧾 **فیش:** #{receipt.id} | وضعیت: {rec_status}"
+        text += f"\n\n🧾 <b>فیش:</b> #{receipt.id} | وضعیت: {rec_status}"
     else:
-        text += "\n\n🧾 **فیش:** ندارد (پرداخت کیف پول)"
+        text += "\n\n🧾 <b>فیش:</b> ندارد (پرداخت کیف پول)"
     
     keys = []
     if receipt and receipt.photo_id:
@@ -321,7 +326,7 @@ async def admin_search_order_result(update: Update, context: ContextTypes.DEFAUL
     keys.append([InlineKeyboardButton("🔎 جستجوی سفارش دیگر", callback_data="admin_search_order")])
     keys.append(CANCEL_BTN[0])
     
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     return ConversationHandler.END
 
 async def adm_view_order_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
