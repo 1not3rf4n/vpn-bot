@@ -144,7 +144,7 @@ async def mgmt_user_svcs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
         text += f"🔹 <code>{escape(s.panel_username or 'نامشخص')}</code>\nانقضا: {exp} | وضعیت: {s.status}\n\n"
         keys.append([
-            InlineKeyboardButton(f"🗑 حذف {s.id}", callback_data=f"adm_del_svc_{s.id}"),
+            InlineKeyboardButton(f"🗑 حذف {s.id}", callback_data=f"adm_askdelsvc_{s.id}"),
             InlineKeyboardButton(f"➕ ۳۰ روز تمدید", callback_data=f"adm_ren_svc_{s.id}")
         ])
 
@@ -169,20 +169,69 @@ async def do_renew_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Reload would be nice, but for simplicity, we just send to panel
     await admin_panel(update, context)
 
-async def do_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ask_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     s_id = int(query.data.split("_")[2])
     
     async with AsyncSessionLocal() as session:
         svc = (await session.execute(select(Service).where(Service.id == s_id))).scalars().first()
-        if svc:
-            await session.delete(svc)
-            await session.commit()
-            u_id = svc.user_id
-    await query.answer("سرویس حذف شد!", show_alert=True)
+    
+    if not svc:
+        await query.edit_message_text("❌ سرویس یافت نشد.")
+        return
+        
+    text = (
+        f"❓ <b>تایید حذف سرویس</b>\n\n"
+        f"سرویس: <code>{svc.panel_username}</code>\n"
+        f"شناسه: {svc.id}\n\n"
+        f"لطفاً نوع حذف را انتخاب کنید:"
+    )
+    keys = [
+        [InlineKeyboardButton("🗑 فقط حذف سرویس", callback_data=f"adm_delsvc_{s_id}")],
+        [InlineKeyboardButton("💰 حذف سرویس + کسر از آمار فروش", callback_data=f"adm_delsvcorder_{s_id}")],
+        [InlineKeyboardButton("🔙 انصراف", callback_data=f"adm_mgsvc_{svc.user_id}")]
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+
+async def do_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    s_id = int(data.split("_")[2])
+    u_id = None
+    
     async with AsyncSessionLocal() as session:
-        user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
-        await render_user_profile(user, query, is_edit=True)
+        svc = (await session.execute(select(Service).where(Service.id == s_id))).scalars().first()
+        if svc:
+            u_id = svc.user_id
+            panel_uname = svc.panel_username # Usually #SUB-123
+            
+            # 1. Delete Service
+            await session.delete(svc)
+            
+            # 2. Check if we need to delete Order as well
+            if "order" in data and panel_uname and "#SUB-" in panel_uname:
+                try:
+                    order_id = int(panel_uname.replace("#SUB-", ""))
+                    from database.models import Order
+                    order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
+                    if order:
+                        await session.delete(order)
+                        logger.info(f"Admin deleted service {s_id} AND order {order_id} to adjust stats.")
+                except:
+                    pass
+            
+            await session.commit()
+
+    if u_id:
+        await query.answer("✅ حذف با موفقیت انجام شد.", show_alert=True)
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
+            if user: await render_user_profile(user, query, is_edit=True)
+            else: await admin_panel(update, context)
+    else:
+        await query.answer("❌ خطا: سرویس یافت نشد.")
+        await admin_panel(update, context)
 
 # --- User Tickets View ---
 async def adm_view_user_tcks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -382,7 +431,8 @@ def get_admin_users_routers():
     return [
         CallbackQueryHandler(mgmt_user_svcs, pattern="^adm_mgsvc_"),
         CallbackQueryHandler(do_renew_svc, pattern="^adm_rensvc_"),
-        CallbackQueryHandler(do_del_svc, pattern="^adm_delsvc_"),
+        CallbackQueryHandler(ask_del_svc, pattern="^adm_askdelsvc_"),
+        CallbackQueryHandler(do_del_svc, pattern="^adm_delsvc"),
         CallbackQueryHandler(adm_view_user_tcks, pattern="^adm_tcks_"),
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
         CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
