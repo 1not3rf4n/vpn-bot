@@ -133,9 +133,21 @@ async def mgmt_user_svcs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         services = (await session.execute(select(Service).where(Service.user_id == u_id).order_by(Service.id.desc()))).scalars().all()
         
     if not services:
+        from handlers.admin import CANCEL_BTN
         await query.edit_message_text("این کاربر هیچ سرویسی ندارد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
         return ConversationHandler.END
         
+    from html import escape
+    keys = []
+    text = f"📦 <b>سرویس‌های {escape(user.fullname or 'کاربر')}</b>\n\n"
+    for s in services:
+        exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
+        text += f"🔹 <code>{escape(s.panel_username or 'نامشخص')}</code>\nانقضا: {exp} | وضعیت: {s.status}\n\n"
+        keys.append([
+            InlineKeyboardButton(f"🗑 حذف {s.id}", callback_data=f"adm_del_svc_{s.id}"),
+            InlineKeyboardButton(f"➕ ۳۰ روز تمدید", callback_data=f"adm_ren_svc_{s.id}")
+        ])
+
     keys.append([InlineKeyboardButton("🔙 بازگشت به نمایه", callback_data=f"adm_search_back_{user.id}")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     return ConversationHandler.END
