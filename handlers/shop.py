@@ -42,7 +42,10 @@ async def shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id
         
     keyboard.append([InlineKeyboardButton("🔙 بازگشت به خانه", callback_data="start_menu")])
     
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def shop_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
