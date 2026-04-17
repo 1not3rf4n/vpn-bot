@@ -48,9 +48,14 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if query:
-        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        # Check if the current message is a photo, if so delete and send new text
+        if query.message.photo:
+            await query.message.delete()
+            await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=reply_markup, parse_mode="HTML")
+        else:
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="HTML")
     else:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -88,7 +93,11 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📋 ۱۰ سفارش اخیر", callback_data="admin_recent_orders")],
         CANCEL_BTN[0]
     ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    if query.message.photo:
+        await query.message.delete()
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    else:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

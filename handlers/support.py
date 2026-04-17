@@ -148,7 +148,11 @@ async def admin_tickets_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keys.append([InlineKeyboardButton(f"#{t.id} - ({t.department}) - 👤 مشاهده", callback_data=f"admin_view_ticket_{t.id}")])
         
     keys.append([InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="admin_panel")])
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+    if query.message.photo:
+        await query.message.delete()
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    else:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def admin_view_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

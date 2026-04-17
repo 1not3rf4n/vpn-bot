@@ -188,9 +188,9 @@ async def admin_receipts_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if query.message.photo:
         await query.message.delete()
-        await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     else:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def admin_view_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
