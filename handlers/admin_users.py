@@ -50,9 +50,9 @@ async def render_user_profile(user, message_obj, is_edit=False):
     ]
     
     if is_edit:
-        await message_obj.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+        await message_obj.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     else:
-        await message_obj.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="Markdown")
+        await message_obj.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
 
 async def admin_search_user_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     val = update.message.text.strip()
