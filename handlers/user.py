@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
-from database.models import AsyncSessionLocal, User, Category, Product, Service
+from database.models import AsyncSessionLocal, User, Category, Product, Service, Order
 import core.config as config
 import core.settings as settings
 from core.utils import check_forced_join
@@ -126,12 +126,26 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
             if not services:
                 text += "شما هیچ سرویس فعالی ندارید!"
             else:
+                # Pre-fetch all paid orders for this user to avoid N+1 queries
+                result = await session.execute(select(Order).where(Order.user_id == db_user.id, Order.status == 'PAID'))
+                orders_map = {o.id: o for o in result.scalars().all()}
+
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                     status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
                     p_name = escape(s.panel_username or 'سرویس متفرقه')
-                    text += f"{idx}. پنل/یوزرنیم: {p_name}\n"
-                    text += f"وضعیت: {status} | انقضا: {exp}\n"
+                    
+                    # Try to find purchase price
+                    price_str = ""
+                    if s.panel_username and "#SUB-" in s.panel_username:
+                        try:
+                            oid = int(s.panel_username.split("-")[1])
+                            if oid in orders_map:
+                                price_str = f" | مبلغ خرید: {orders_map[oid].amount:,.0f}T"
+                        except: pass
+
+                    text += f"{idx}. پنل/یوز: {p_name}\n"
+                    text += f"وضعیت: {status} | انقضا: {exp}{price_str}\n"
                     if s.config_link:
                         text += f"لینک: <code>{escape(s.config_link)}</code>\n"
                     text += "➖➖➖➖➖➖\n"
@@ -205,12 +219,26 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keys = []
             if not services: msg += "شما هیچ سرویس فعالی ندارید!"
             else:
+                # Pre-fetch all paid orders for this user to avoid N+1 queries
+                result = await session.execute(select(Order).where(Order.user_id == user_db.id, Order.status == 'PAID'))
+                orders_map = {o.id: o for o in result.scalars().all()}
+
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                     status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
                     p_name = escape(s.panel_username or 'سرویس متفرقه')
+                    
+                    # Try to find purchase price
+                    price_str = ""
+                    if s.panel_username and "#SUB-" in s.panel_username:
+                        try:
+                            oid = int(s.panel_username.split("-")[1])
+                            if oid in orders_map:
+                                price_str = f" | مبلغ خرید: {orders_map[oid].amount:,.0f}T"
+                        except: pass
+
                     msg += f"{idx}. سرور: {p_name}\n"
-                    msg += f"وضعیت: {status} | انقضا: {exp}\n"
+                    msg += f"وضعیت: {status} | انقضا: {exp}{price_str}\n"
                     msg += "➖➖➖➖➖➖\n"
                     
                     # Extract config link (first line that looks like vless:// or vmess://)

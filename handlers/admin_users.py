@@ -193,9 +193,24 @@ async def mgmt_user_svcs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from html import escape
     keys = []
     text = f"📦 <b>سرویس‌های {escape(user.fullname or 'کاربر')}</b>\n\n"
+    
+    # Pre-fetch paid orders for this user to show purchase price
+    result = await session.execute(select(Order).where(Order.user_id == user.id, Order.status == 'PAID'))
+    orders_map = {o.id: o for o in result.scalars().all()}
+    
     for s in services:
         exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
-        text += f"🔹 <code>{escape(s.panel_username or 'نامشخص')}</code>\nانقضا: {exp} | وضعیت: {s.status}\n\n"
+        
+        # Try to find purchase price from linked order
+        price_str = ""
+        if s.panel_username and "#SUB-" in s.panel_username:
+            try:
+                oid = int(s.panel_username.split("-")[1])
+                if oid in orders_map:
+                    price_str = f"\n💰 مبلغ خرید: {orders_map[oid].amount:,.0f} تومان"
+            except: pass
+            
+        text += f"🔹 <code>{escape(s.panel_username or 'نامشخص')}</code>\nانقضا: {exp} | وضعیت: {s.status}{price_str}\n\n"
         keys.append([
             InlineKeyboardButton(f"🗑 حذف {s.id}", callback_data=f"adm_askdelsvc_{s.id}"),
             InlineKeyboardButton(f"➕ ۳۰ روز تمدید", callback_data=f"adm_ren_svc_{s.id}")
