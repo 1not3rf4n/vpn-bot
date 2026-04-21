@@ -49,11 +49,11 @@ def main():
     from handlers.admin_broadcast import get_broadcast_conv
     
     # Admin Conversations
+    application.add_handler(get_admin_users_conv_handler())
     application.add_handler(get_settings_conv_handler())
     application.add_handler(get_admin_shop_conv_handler())
     application.add_handler(get_finance_conv_handler())
     application.add_handler(get_discount_conv_handler())
-    application.add_handler(get_admin_users_conv_handler())
     application.add_handler(get_admin_free_conv())
     application.add_handler(get_broadcast_conv())
     

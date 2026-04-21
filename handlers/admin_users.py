@@ -538,7 +538,8 @@ def get_admin_users_conv_handler():
             CallbackQueryHandler(admin_search_user_start, pattern="^admin_search_user$"),
             CallbackQueryHandler(admin_search_order_start, pattern="^admin_search_order$"),
             CallbackQueryHandler(start_add_manual_svc, pattern="^adm_addsvc_"),
-            CallbackQueryHandler(adm_start_msg, pattern="^adm_msg_")
+            CallbackQueryHandler(adm_start_msg, pattern="^adm_msg_"),
+            CallbackQueryHandler(adm_wal_action_start, pattern="^adm_waladd_|^adm_walsub_")
         ],
         states={
             WAIT_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_search_user_result)],
@@ -563,13 +564,11 @@ def get_admin_users_routers():
         CallbackQueryHandler(mgmt_user_svcs, pattern="^adm_mgsvc_"),
         CallbackQueryHandler(do_renew_svc, pattern="^adm_rensvc_"),
         CallbackQueryHandler(admin_wallet_mgmt_menu, pattern="^adm_walmgmt_"),
-        CallbackQueryHandler(adm_wal_action_start, pattern="^adm_waladd_|^adm_walsub_"),
-        CallbackQueryHandler(adm_reset_wallet, pattern="^adm_walreset_"),
+        CallbackQueryHandler(adm_reset_wallet, pattern="^adm_walreset_|^adm_resetwal_"),
         CallbackQueryHandler(ask_del_svc, pattern="^adm_askdelsvc_"),
         CallbackQueryHandler(do_del_svc, pattern="^adm_delsvc"),
         CallbackQueryHandler(adm_view_user_tcks, pattern="^adm_tcks_"),
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
-        CallbackQueryHandler(adm_reset_wallet, pattern="^adm_resetwal_"),
         CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
         CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_")
     ]
