@@ -74,7 +74,7 @@ def main():
         application.add_handler(handler)
 
     # General Callbacks
-    application.add_handler(CallbackQueryHandler(admin_callbacks, pattern="^admin_(panel|cancel|stats|recent_orders|broadcast|free_configs)"))
+    application.add_handler(CallbackQueryHandler(admin_callbacks, pattern="^admin_(panel|cancel|stats|recent_orders|broadcast|free_configs|server_info)"))
     
     for rt in get_settings_routers(): application.add_handler(rt)
     for rt in get_admin_shop_routers(): application.add_handler(rt)
