@@ -206,10 +206,14 @@ async def admin_global_toggles(update: Update, context: ContextTypes.DEFAULT_TYP
     keys = [
         [InlineKeyboardButton(f"فروشگاه: {'روشن✅' if shop == 'on' else 'خاموش❌'}", callback_data="toggle_menu_shop")],
         [InlineKeyboardButton(f"کیف پول: {'روشن✅' if wallet == 'on' else 'خاموش❌'}", callback_data="toggle_menu_wallet")],
-        [InlineKeyboardButton(f"کانفیگ رایگان: {'روشن✅' if free == 'on' else 'خاموش❌'}", callback_data="toggle_menu_free")],
+        [InlineKeyboardButton(f"کانفیگ رایگان: {'روشن✅' if free == 'on' else 'خاموش❌'}", callback_data="toggle_menu_free_config")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_settings_menu")]
     ]
-    await query.edit_message_text("مدیریت کلیدهای منوی اصلی کاربر:", reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    try:
+        await query.edit_message_text("مدیریت کلیدهای منوی اصلی کاربر:", reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            raise e
 
 async def handle_toggle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
