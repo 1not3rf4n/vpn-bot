@@ -66,6 +66,7 @@ async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     text = "🔍 <b>جستجوی کاربر</b>\n\nلطفاً آیدی عددی کاربر و یا یوزرنیم وی را (با @ یا بدون @) ارسال کنید:"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
+    return WAIT_USER_ID
 async def render_user_profile(user, message_obj, is_edit=False):
     async with AsyncSessionLocal() as session:
         orders = (await session.execute(select(Order).where(Order.user_id == user.id))).scalars().all()
