@@ -43,7 +43,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🗂 مدیریت فروشگاه (دسته‌بندی و محصول)", callback_data="admin_shop")],
         [InlineKeyboardButton("💰 مالی و درگاه‌ها", callback_data="admin_finance_menu"), InlineKeyboardButton("🎁 مدیریت تخفیف‌ها", callback_data="admin_discounts_menu")],
         [InlineKeyboardButton("🎁 مدیریت کانفیگ رایگان", callback_data="admin_free_configs")],
-        [InlineKeyboardButton("⚙️ تنظیمات عمومی", callback_data="admin_settings_menu")],
+        [InlineKeyboardButton("⚙️ تنظیمات عمومی", callback_data="admin_settings_menu"), InlineKeyboardButton("🖥 مدیریت سرور", callback_data="admin_server_info")],
         [InlineKeyboardButton("🔙 بازگشت به ربات", callback_data="start_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -136,9 +136,36 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
     await admin_panel(update, context)
 
+async def admin_server_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    msg = (
+        "🖥 <b>راهنمای مدیریت سرور (Ubuntu)</b>\n"
+        "➖➖➖➖➖➖➖➖\n"
+        "برای مدیریت ربات در سرور اوبونتو از دستورات زیر استفاده کنید:\n\n"
+        "🔄 <b>ری‌استارت ربات:</b>\n"
+        "<code>sudo systemctl restart vpn-bot</code>\n\n"
+        "📊 <b>مشاهده وضعیت:</b>\n"
+        "<code>sudo systemctl status vpn-bot</code>\n\n"
+        "📜 <b>مشاهده لاگ‌های زنده:</b>\n"
+        "<code>sudo journalctl -u vpn-bot -f</code>\n\n"
+        "⏹ <b>توقف ربات:</b>\n"
+        "<code>sudo systemctl stop vpn-bot</code>\n\n"
+        "▶️ <b>شروع به کار:</b>\n"
+        "<code>sudo systemctl start vpn-bot</code>\n\n"
+        "📥 <b>آپدیت کد از گیت‌هاب:</b>\n"
+        "<code>cd ~/vpn-bot && git pull && sudo systemctl restart vpn-bot</code>\n"
+    )
+    
+    keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+
 async def admin_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.data == "admin_panel" or query.data == "admin_cancel":
+    if query.data == "admin_server_info":
+        await admin_server_info(update, context)
+    elif query.data == "admin_panel" or query.data == "admin_cancel":
         await admin_panel(update, context)
     elif query.data == "admin_stats":
         await admin_stats(update, context)
