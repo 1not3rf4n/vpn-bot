@@ -133,14 +133,17 @@ async def apply_coupon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     p_id = context.user_data.get('checkout_prod_id')
     
     async with AsyncSessionLocal() as session:
+        from sqlalchemy import func
         res = await session.execute(select(Product).where(Product.id == p_id))
         product = res.scalars().first()
         
-        res = await session.execute(select(DiscountCode).where(DiscountCode.code == code).where(DiscountCode.active == True))
+        # Case insensitive and stripped coupon check
+        clean_code = code.strip().lower()
+        res = await session.execute(select(DiscountCode).where(func.lower(DiscountCode.code) == clean_code).where(DiscountCode.active == True))
         coupon = res.scalars().first()
         
-        if not coupon or coupon.used_count >= coupon.max_uses:
-            await update.message.reply_text("❌ کد تخفیف نامعتبر است یا منقضی شده.")
+        if not coupon or (coupon.max_uses > 0 and coupon.used_count >= coupon.max_uses):
+            await update.message.reply_text("❌ کد تخفیف نامعتبر است یا ظرفیت استفاده از آن تمام شده.")
             return WAIT_COUPON
             
         discount_amount = (product.price * coupon.percent) / 100
