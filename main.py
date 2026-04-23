@@ -86,6 +86,10 @@ def main():
     for rt in get_admin_users_routers(): application.add_handler(rt)
 
     application.add_handler(CallbackQueryHandler(verify_receipt_callback, pattern="^(verify|reject)_receipt_"))
+    async def log_call(update, context):
+        logger.info(f"Callback data received: {update.callback_query.data} from user {update.effective_user.id}")
+    application.add_handler(CallbackQueryHandler(log_call), group=-1)
+
     application.add_handler(CallbackQueryHandler(user_dashboard_callbacks)) # Fallback user callbacks
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), main_menu_handler))
 
