@@ -6,6 +6,7 @@ from database.models import AsyncSessionLocal, User
 from sqlalchemy.future import select
 
 (EDIT_START_MSG, EDIT_CHANNEL, EDIT_REF, EDIT_UI_COLOR, EDIT_ORDER_TXT, WAIT_XUI_URL, WAIT_XUI_USER, WAIT_XUI_PASS) = range(10, 18)
+(EDIT_RENEW_DISC,) = range(18, 19)
 
 CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="settings_cancel")]]
 
@@ -28,6 +29,7 @@ async def settings_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎁 درصد پورسانت دعوت (رفرال)", callback_data="set_referral_percent")],
         [InlineKeyboardButton("💱 نرخ پایه تتر / دلار", callback_data="set_usd_rate")],
         [InlineKeyboardButton("✅ پیام کاستوم تایید پرداخت", callback_data="set_order_msg")],
+        [InlineKeyboardButton("🔄 تخفیف تمدید (درصد)", callback_data="set_renew_discount")],
         [InlineKeyboardButton("🔘 مدیریت کلیدهای سراسری", callback_data="admin_global_toggles")],
         [InlineKeyboardButton("🔌 اتصال پنل (سرور V2ray)", callback_data="settings_xui_panel")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")]
@@ -128,6 +130,7 @@ def get_settings_conv_handler():
             CallbackQueryHandler(req_referral, pattern="^set_referral_percent$"),
             CallbackQueryHandler(req_usd_rate, pattern="^set_usd_rate$"),
             CallbackQueryHandler(req_order_msg, pattern="^set_order_msg$"),
+            CallbackQueryHandler(req_renew_discount, pattern="^set_renew_discount$"),
             CallbackQueryHandler(req_xui_panel, pattern="^settings_xui_panel$")
         ],
         states={
@@ -136,6 +139,7 @@ def get_settings_conv_handler():
             EDIT_REF: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_referral)],
             EDIT_UI_COLOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_usd_rate)],
             EDIT_ORDER_TXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_order_msg)],
+            EDIT_RENEW_DISC: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_renew_discount)],
             WAIT_XUI_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_xui_url)],
             WAIT_XUI_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_xui_user)],
             WAIT_XUI_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_xui_pass)]
@@ -146,6 +150,32 @@ def get_settings_conv_handler():
             CallbackQueryHandler(cancel_settings, pattern="^settings_cancel$")
         ]
     )
+
+
+async def req_renew_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cur = await get_setting("renew_discount_percent", "0")
+    await query.message.reply_text(
+        f"درصد تخفیف تمدید فعلی: {cur}٪\n\nلطفاً درصد جدید را بدون علامت ٪ ارسال کنید (مثلاً 20).\nبرای خاموش کردن: 0",
+        reply_markup=InlineKeyboardMarkup(CANCEL_BTN),
+    )
+    return EDIT_RENEW_DISC
+
+
+async def save_renew_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = (update.message.text or "").strip()
+    if not val.isdigit():
+        await update.message.reply_text("لطفاً فقط عدد ارسال کنید (مثلاً 0 تا 90).", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+        return EDIT_RENEW_DISC
+    n = int(val)
+    if n < 0 or n > 90:
+        await update.message.reply_text("عدد باید بین 0 تا 90 باشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+        return EDIT_RENEW_DISC
+    await set_setting("renew_discount_percent", str(n))
+    await update.message.reply_text("✅ تخفیف تمدید ذخیره شد.")
+    await settings_panel(update, context)
+    return ConversationHandler.END
 
 async def req_xui_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

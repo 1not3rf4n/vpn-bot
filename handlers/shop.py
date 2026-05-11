@@ -5,6 +5,9 @@ from database.models import AsyncSessionLocal, User, Category, Product, Service,
 from services.vpn_panel import vpn_panel
 import core.settings as settings
 import core.config as config
+import logging
+
+logger = logging.getLogger(__name__)
 
 (WAIT_SHOP_ACTION, WAIT_COUPON, WAIT_SHOP_METHOD, WAIT_SHOP_RECEIPT) = range(80, 84)
 CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="shop_cancel")]]
@@ -334,19 +337,23 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
             gw = Tetra98Gateway(api_key)
 
             desc = f"Order #{order.id} - {product.name}"
-            callback_url = "https://example.com/cb"
-            status_code, data = await gw.create_order(
+            callback_url = f"https://t.me/{context.bot.username}" if getattr(context.bot, "username", None) else "https://t.me/"
+            status_code, data, raw = await gw.create_order(
                 hash_id=hash_id,
                 amount=int(final_price),
                 description=desc,
                 callback_url=callback_url,
                 email="",
-                mobile="",
+                mobile=(query.from_user.phone_number if hasattr(query.from_user, "phone_number") else ""),
             )
 
             if status_code != 200 or str(data.get("status")) != "100":
                 await session.rollback()
-                await query.edit_message_text(f"❌ خطا در ایجاد سفارش پرداخت. (کد: {data.get('status', status_code)})")
+                code = data.get("status", status_code)
+                msg = data.get("message") or data.get("error") or ""
+                logger.error(f"Tetra98 create_order failed: http={status_code} code={code} msg={msg} raw={raw[:500]}")
+                detail = f"\nجزئیات: {msg}" if msg else ""
+                await query.edit_message_text(f"❌ خطا در ایجاد سفارش پرداخت. (کد: {code}){detail}")
                 return ConversationHandler.END
 
             authority = data.get("Authority") or ""
@@ -510,8 +517,9 @@ async def tetra_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text("❌ خطا: Authority برای این سفارش ذخیره نشده است.")
             return
 
-        status_code, data = await gw.verify(authority=authority)
+        status_code, data, raw = await gw.verify(authority=authority)
         if status_code != 200:
+            logger.error(f"Tetra98 verify HTTP error: http={status_code} raw={raw[:500]}")
             await query.edit_message_text("❌ خطا در ارتباط با درگاه. لطفاً دوباره تلاش کنید.")
             return
 

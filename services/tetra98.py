@@ -28,13 +28,19 @@ class Tetra98Gateway:
         }
         async with httpx.AsyncClient(timeout=20) as client:
             res = await client.post(self.create_url, json=payload)
-            data = res.json() if res.content else {}
-            return res.status_code, data
+            try:
+                data = res.json() if res.content else {}
+            except Exception:
+                data = {"_raw": (res.text or "").strip()}
+            return res.status_code, data, (res.text or "").strip()
 
     async def verify(self, *, authority: str):
         payload = {"authority": authority, "ApiKey": self.api_key}
         async with httpx.AsyncClient(timeout=20) as client:
             res = await client.post(self.verify_url, json=payload)
-            data = res.json() if res.content else {}
-            return res.status_code, data
+            try:
+                data = res.json() if res.content else {}
+            except Exception:
+                data = {"_raw": (res.text or "").strip()}
+            return res.status_code, data, (res.text or "").strip()
 

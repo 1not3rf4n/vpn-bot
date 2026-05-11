@@ -36,6 +36,9 @@ async def ensure_defaults():
         "crypto_enabled": "off",
         "zarinpal_enabled": "off",
         "tetra98_enabled": "off",
+
+        # Renewal pricing
+        "renew_discount_percent": "0",
     }
     for k, v in defaults.items():
         if await get_setting(k) is None:

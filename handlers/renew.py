@@ -41,6 +41,13 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         
         context.user_data['renew_svc_id'] = svc_id
+
+        disc_str = await settings.get_setting("renew_discount_percent", "0")
+        try:
+            renew_disc = int(str(disc_str).strip())
+        except Exception:
+            renew_disc = 0
+        renew_disc = max(0, min(90, renew_disc))
         
         # Find V2RAY products to offer for renewal
         v2_products = (await session.execute(
@@ -58,7 +65,12 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keys = []
         for p in v2_products:
             vol_txt = f"{p.volume_gb}GB" if p.volume_gb > 0 else "نامحدود"
-            label = f"📦 {escape(p.name)} | {p.duration_days} روز | {vol_txt} | {p.price:,.0f}T"
+            price = p.price
+            if renew_disc > 0 and price and price > 0:
+                price = int(price * (100 - renew_disc) / 100)
+                label = f"📦 {escape(p.name)} | {p.duration_days} روز | {vol_txt} | {price:,.0f}T (تخفیف {renew_disc}٪)"
+            else:
+                label = f"📦 {escape(p.name)} | {p.duration_days} روز | {vol_txt} | {p.price:,.0f}T"
             keys.append([InlineKeyboardButton(label, callback_data=f"renew_plan_{p.id}")])
         
         keys.append(CANCEL_BTN[0])
@@ -83,6 +95,18 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
         
         context.user_data['renew_prod_id'] = prod_id
+
+        disc_str = await settings.get_setting("renew_discount_percent", "0")
+        try:
+            renew_disc = int(str(disc_str).strip())
+        except Exception:
+            renew_disc = 0
+        renew_disc = max(0, min(90, renew_disc))
+
+        price = product.price
+        if renew_disc > 0 and price and price > 0:
+            price = int(price * (100 - renew_disc) / 100)
+        context.user_data["renew_final_price"] = price
         
         from html import escape
         vol_txt = f"{product.volume_gb}GB" if product.volume_gb > 0 else "نامحدود"
@@ -91,11 +115,11 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"پلن: {escape(product.name)}\n"
             f"مدت: {product.duration_days} روز\n"
             f"حجم: {vol_txt}\n"
-            f"قیمت: {product.price:,.0f} تومان\n\n"
+            + (f"قیمت: <s>{product.price:,.0f}</s> <b>{price:,.0f}</b> تومان (تخفیف {renew_disc}٪)\n\n" if renew_disc > 0 and product.price and product.price > 0 else f"قیمت: {product.price:,.0f} تومان\n\n")
             f"💰 موجودی فعلی شما: {user_db.wallet_balance:,.0f} تومان\n\n"
         )
         
-        if user_db.wallet_balance < product.price:
+        if user_db.wallet_balance < price:
             text += "❌ موجودی کیف پول شما کافی نیست. لطفا اول شارژ کنید."
             keys = [
                 [InlineKeyboardButton("💳 شارژ کیف پول", callback_data="wallet_add")],
@@ -130,12 +154,18 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ خطا در پردازش.")
             return ConversationHandler.END
         
-        if user_db.wallet_balance < product.price:
+        final_price = context.user_data.get("renew_final_price", product.price)
+        try:
+            final_price = float(final_price)
+        except Exception:
+            final_price = product.price
+
+        if user_db.wallet_balance < final_price:
             await query.edit_message_text("❌ موجودی کافی نیست.")
             return ConversationHandler.END
         
         # Deduct wallet
-        user_db.wallet_balance -= product.price
+        user_db.wallet_balance -= final_price
         
         # Update service expiry
         if svc.expire_date and svc.expire_date > datetime.utcnow():
@@ -225,7 +255,7 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"پلن: {escape(product.name)}\n"
             f"حجم جدید: {vol_txt}\n"
             f"انقضای جدید: <code>{exp_str}</code>\n"
-            f"مبلغ کسر شده: {product.price:,.0f} تومان"
+            f"مبلغ کسر شده: {final_price:,.0f} تومان"
         )
         
         await query.edit_message_text(text, parse_mode="HTML")
