@@ -115,9 +115,14 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"پلن: {escape(product.name)}\n"
             f"مدت: {product.duration_days} روز\n"
             f"حجم: {vol_txt}\n"
-            + (f"قیمت: <s>{product.price:,.0f}</s> <b>{price:,.0f}</b> تومان (تخفیف {renew_disc}٪)\n\n" if renew_disc > 0 and product.price and product.price > 0 else f"قیمت: {product.price:,.0f} تومان\n\n")
-            f"💰 موجودی فعلی شما: {user_db.wallet_balance:,.0f} تومان\n\n"
         )
+
+        if renew_disc > 0 and product.price and product.price > 0:
+            text += f"قیمت: <s>{product.price:,.0f}</s> <b>{price:,.0f}</b> تومان (تخفیف {renew_disc}٪)\n\n"
+        else:
+            text += f"قیمت: {product.price:,.0f} تومان\n\n"
+
+        text += f"💰 موجودی فعلی شما: {user_db.wallet_balance:,.0f} تومان\n\n"
         
         if user_db.wallet_balance < price:
             text += "❌ موجودی کیف پول شما کافی نیست. لطفا اول شارژ کنید."
