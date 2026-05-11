@@ -177,6 +177,7 @@ async def shop_select_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
     c_st = await settings.get_setting("card_enabled", "on")
     z_st = await settings.get_setting("zarinpal_enabled", "off")
     crypt_st = await settings.get_setting("crypto_enabled", "off")
+    tetra_st = await settings.get_setting("tetra98_enabled", "off")
     
     keys = []
     has_toman = product.price > 0
@@ -188,6 +189,7 @@ async def shop_select_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if has_toman:
         keys.append([InlineKeyboardButton("💰 پرداخت از موجودی کیف پول", callback_data="shop_pay_wallet")])
         if c_st == "on": keys.append([InlineKeyboardButton("💳 کارت به کارت", callback_data="shop_pay_card")])
+        if tetra_st == "on": keys.append([InlineKeyboardButton("⚡ کارت به کارت سریع", callback_data="shop_pay_tetra98")])
         if z_st == "on": keys.append([InlineKeyboardButton("🌐 درگاه زرین‌پال", callback_data="shop_pay_zarinpal")])
     if has_usd and crypt_st == "on":
         keys.append([InlineKeyboardButton("🪙 ارز دیجیتال (دلار)", callback_data="shop_pay_crypto")])
@@ -292,6 +294,88 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
             
             await provision_order_and_notify(order.id, context.bot)
+
+        elif query.data == "shop_pay_tetra98":
+            tetra_enabled = await settings.get_setting("tetra98_enabled", "off")
+            if tetra_enabled != "on":
+                await query.edit_message_text("❌ این روش پرداخت در حال حاضر غیرفعال است.")
+                return ConversationHandler.END
+
+            api_key = getattr(config, "TETRA98_API_KEY", "") or ""
+            if not api_key:
+                await query.edit_message_text("❌ خطا: کلید درگاه Tetra98 روی سرور تنظیم نشده است.")
+                return ConversationHandler.END
+
+            user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
+            if not user_db:
+                await query.edit_message_text("❌ خطا: کاربر یافت نشد.")
+                return ConversationHandler.END
+
+            final_price = context.user_data.get('checkout_final_price', product.price)
+            if final_price <= 0:
+                await query.edit_message_text("❌ این محصول نیازی به پرداخت ندارد.")
+                return ConversationHandler.END
+
+            order = Order(
+                user_id=user_db.id,
+                product_id=product.id,
+                amount=final_price,
+                payment_method="TETRA98",
+                status="PENDING",
+            )
+            order.coupon_id = context.user_data.get("checkout_coupon_id")
+            session.add(order)
+            await session.flush()
+
+            hash_id = f"invoice-{order.id}"
+            order.gateway_hash_id = hash_id
+
+            from services.tetra98 import Tetra98Gateway
+            gw = Tetra98Gateway(api_key)
+
+            desc = f"Order #{order.id} - {product.name}"
+            callback_url = "https://example.com/cb"
+            status_code, data = await gw.create_order(
+                hash_id=hash_id,
+                amount=int(final_price),
+                description=desc,
+                callback_url=callback_url,
+                email="",
+                mobile="",
+            )
+
+            if status_code != 200 or str(data.get("status")) != "100":
+                await session.rollback()
+                await query.edit_message_text(f"❌ خطا در ایجاد سفارش پرداخت. (کد: {data.get('status', status_code)})")
+                return ConversationHandler.END
+
+            authority = data.get("Authority") or ""
+            tracking_id = data.get("tracking_id") or ""
+            payment_url_bot = data.get("payment_url_bot") or ""
+            payment_url_web = data.get("payment_url_web") or ""
+
+            order.gateway_authority = authority
+            order.gateway_tracking_id = str(tracking_id)
+            await session.commit()
+
+            from html import escape
+            text = (
+                f"⚡ <b>پرداخت سریع</b>\n\n"
+                f"مبلغ: <b>{final_price:,.0f} تومان</b>\n"
+                f"کد پیگیری: <code>{escape(str(tracking_id))}</code>\n\n"
+                f"برای پرداخت روی یکی از لینک‌های زیر بزنید، بعد از پرداخت برگردید و روی «بررسی پرداخت» کلیک کنید."
+            )
+
+            keys = []
+            if payment_url_bot:
+                keys.append([InlineKeyboardButton("پرداخت از طریق ربات", url=payment_url_bot)])
+            if payment_url_web:
+                keys.append([InlineKeyboardButton("پرداخت از طریق سایت", url=payment_url_web)])
+            keys.append([InlineKeyboardButton("✅ بررسی پرداخت", callback_data=f"tetra_verify_{order.id}")])
+            keys.append([InlineKeyboardButton("🔙 انصراف", callback_data="shop_cancel")])
+
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+            return ConversationHandler.END
         
     for k in ['checkout_prod_id', 'checkout_final_price', 'checkout_final_price_usd', 'checkout_coupon_id', 'checkout_pay_method']:
         context.user_data.pop(k, None)
@@ -374,6 +458,7 @@ async def cancel_chk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_shop_handlers():
     return [
+        CallbackQueryHandler(tetra_verify_payment, pattern="^tetra_verify_"),
         CallbackQueryHandler(shop_router, pattern="^(shop_categories|usr_cat_)"),
         ConversationHandler(
             entry_points=[CallbackQueryHandler(checkout_start, pattern="^buyprod_")],
@@ -396,3 +481,64 @@ def get_shop_handlers():
             allow_reentry=True
         )
     ]
+
+
+async def tetra_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    order_id = int(query.data.split("_")[2])
+
+    api_key = getattr(config, "TETRA98_API_KEY", "") or ""
+    if not api_key:
+        await query.edit_message_text("❌ خطا: کلید درگاه Tetra98 روی سرور تنظیم نشده است.")
+        return
+
+    from services.tetra98 import Tetra98Gateway
+    gw = Tetra98Gateway(api_key)
+
+    async with AsyncSessionLocal() as session:
+        order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
+        if not order:
+            await query.edit_message_text("❌ سفارش یافت نشد.")
+            return
+        if order.status == "PAID":
+            await query.edit_message_text("✅ این سفارش قبلاً پرداخت شده است.")
+            return
+
+        authority = order.gateway_authority or ""
+        if not authority:
+            await query.edit_message_text("❌ خطا: Authority برای این سفارش ذخیره نشده است.")
+            return
+
+        status_code, data = await gw.verify(authority=authority)
+        if status_code != 200:
+            await query.edit_message_text("❌ خطا در ارتباط با درگاه. لطفاً دوباره تلاش کنید.")
+            return
+
+        # Some gateways return int/str; accept both
+        ok = False
+        if isinstance(data, dict):
+            st = data.get("status")
+            ok = (st == 100) or (st == "100") or (str(st) == "100")
+
+        if not ok:
+            await query.edit_message_text("⏳ هنوز پرداخت برای این سفارش تایید نشده است. چند دقیقه دیگر دوباره تست کنید.")
+            return
+
+        # Mark paid and provision
+        order.status = "PAID"
+
+        # Apply coupon usage only after successful payment
+        if order.coupon_id:
+            coupon = (await session.execute(select(DiscountCode).where(DiscountCode.id == order.coupon_id))).scalars().first()
+            if coupon:
+                coupon.used_count += 1
+
+        await session.commit()
+
+    from core.provision import provision_order_and_notify
+    await query.edit_message_text("✅ پرداخت تایید شد. در حال تحویل سرویس...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 صفحه اصلی", callback_data="start_menu")]]))
+    await provision_order_and_notify(order_id, context.bot)
+
+    for k in ['checkout_prod_id', 'checkout_final_price', 'checkout_final_price_usd', 'checkout_coupon_id', 'checkout_pay_method']:
+        context.user_data.pop(k, None)

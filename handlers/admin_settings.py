@@ -202,11 +202,13 @@ async def admin_global_toggles(update: Update, context: ContextTypes.DEFAULT_TYP
     shop = await get_setting("menu_shop", "on")
     wallet = await get_setting("menu_wallet", "on")
     free = await get_setting("menu_free_config", "on")
+    renew = await get_setting("menu_renew", "on")
     
     keys = [
         [InlineKeyboardButton(f"فروشگاه: {'روشن✅' if shop == 'on' else 'خاموش❌'}", callback_data="toggle_menu_shop")],
         [InlineKeyboardButton(f"کیف پول: {'روشن✅' if wallet == 'on' else 'خاموش❌'}", callback_data="toggle_menu_wallet")],
         [InlineKeyboardButton(f"کانفیگ رایگان: {'روشن✅' if free == 'on' else 'خاموش❌'}", callback_data="toggle_menu_free_config")],
+        [InlineKeyboardButton(f"تمدید سرویس‌ها: {'روشن✅' if renew == 'on' else 'خاموش❌'}", callback_data="toggle_menu_renew")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_settings_menu")]
     ]
     try:

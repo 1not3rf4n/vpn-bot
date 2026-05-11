@@ -23,7 +23,19 @@ async def ensure_defaults():
         "forced_channel": "", # ID without @, if empty -> OFF
         "admin_card": "6037990000000000",
         "panel_enabled": "False", # "True" / "False"
-        "crypto_address": "Txxxxxx..."
+        "crypto_address": "Txxxxxx...",
+
+        # Global user-facing feature toggles (on/off)
+        "menu_shop": "on",
+        "menu_wallet": "on",
+        "menu_free_config": "on",
+        "menu_renew": "on",
+
+        # Payment methods toggles (on/off)
+        "card_enabled": "on",
+        "crypto_enabled": "off",
+        "zarinpal_enabled": "off",
+        "tetra98_enabled": "off",
     }
     for k, v in defaults.items():
         if await get_setting(k) is None:

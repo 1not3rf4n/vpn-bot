@@ -12,3 +12,6 @@ ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", "true").lower() == "true"
 
 # پایگاه داده محلی (SQLite) که بدون نیاز به نصب سرور، اطلاعات را نگه می‌دارد.
 DB_URL = os.getenv("DB_URL", "sqlite+aiosqlite:///ecommerce.db")
+
+# Tetra98 gateway (do NOT hardcode the key in code)
+TETRA98_API_KEY = os.getenv("TETRA98_API_KEY", "")

@@ -44,6 +44,7 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         shop_en = await settings.get_setting("menu_shop", "on")
         wallet_en = await settings.get_setting("menu_wallet", "on")
         free_en = await settings.get_setting("menu_free_config", "on")
+        renew_en = await settings.get_setting("menu_renew", "on")
         
         keyboard = []
         if shop_en == "on":
@@ -219,6 +220,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keys = []
             if not services: msg += "شما هیچ سرویس فعالی ندارید!"
             else:
+                renew_en = await settings.get_setting("menu_renew", "on")
                 # Pre-fetch all paid orders for this user to avoid N+1 queries
                 result = await session.execute(select(Order).where(Order.user_id == user_db.id, Order.status == 'PAID'))
                 orders_map = {o.id: o for o in result.scalars().all()}
@@ -248,7 +250,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             keys.append([InlineKeyboardButton(f"📋 کپی لینک سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
                     
                     # Only show renewal for V2RAY active services
-                    if s.status == "ACTIVE":
+                    if renew_en == "on" and s.status == "ACTIVE":
                         keys.append([InlineKeyboardButton(f"🔄 تمدید سرویس #{idx}", callback_data=f"renew_svc_{s.id}")])
             
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)

@@ -14,15 +14,18 @@ async def admin_finance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     card_stat = await get_setting("card_enabled", "on")
     crypto_stat = await get_setting("crypto_enabled", "off")
     zrn_stat = await get_setting("zarinpal_enabled", "off")
+    tetra_stat = await get_setting("tetra98_enabled", "off")
 
     st_card = "🟢 روشن" if card_stat=="on" else "🔴 خاموش"
     st_crypt = "🟢 روشن" if crypto_stat=="on" else "🔴 خاموش"
     st_zrn = "🟢 روشن" if zrn_stat=="on" else "🔴 خاموش"
+    st_tetra = "🟢 روشن" if tetra_stat=="on" else "🔴 خاموش"
 
     text = "💰 <b>تنظیمات مالی و درگاه‌ها</b>\nشما می‌توانید روش‌های پرداخت را فعال یا غیرفعال کنید:"
     keys = [
         [InlineKeyboardButton(f"💳 کارت بانکی ({st_card})", callback_data="tg_finance_card_enabled")],
         [InlineKeyboardButton("✍️ تغییر شماره کارت", callback_data="fin_set_card")],
+        [InlineKeyboardButton(f"⚡ کارت به کارت سریع (Tetra98) ({st_tetra})", callback_data="tg_finance_tetra98_enabled")],
         [InlineKeyboardButton(f"🪙 ارز دیجیتال ({st_crypt})", callback_data="tg_finance_crypto_enabled")],
         [InlineKeyboardButton("🔗 مدیریت آدرس‌های ولت (تتر، تن، شیبا و...)", callback_data="admin_crypto_menu")],
         [InlineKeyboardButton(f"🌐 درگاه مستقیم ({st_zrn})", callback_data="tg_finance_zarinpal_enabled")],
@@ -36,7 +39,7 @@ async def toggle_finance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     key = query.data.replace("tg_finance_", "")
     # پیش‌فرض‌ها باید با admin_finance_menu یکی باشن
-    defaults = {"card_enabled": "on", "crypto_enabled": "off", "zarinpal_enabled": "off"}
+    defaults = {"card_enabled": "on", "crypto_enabled": "off", "zarinpal_enabled": "off", "tetra98_enabled": "off"}
     cur = await get_setting(key, defaults.get(key, "off"))
     await set_setting(key, "off" if cur == "on" else "on")
     await admin_finance_menu(update, context)

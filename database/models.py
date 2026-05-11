@@ -76,6 +76,10 @@ class Order(Base):
     payment_method = Column(String(50)) # ZARINPAL, WALLET, CARD, CRYPTO
     status = Column(String(50), default='PENDING') # PENDING, PAID, CANCELED, REJECTED
     receipt_photo = Column(String(255), nullable=True) # In case of CARD
+    coupon_id = Column(Integer, nullable=True)
+    gateway_authority = Column(String(255), nullable=True)
+    gateway_tracking_id = Column(String(255), nullable=True)
+    gateway_hash_id = Column(String(255), nullable=True)
     expire_date = Column(DateTime, nullable=True) # For expiration reminders
     created_at = Column(DateTime, default=datetime.utcnow)
 

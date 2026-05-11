@@ -23,6 +23,11 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """User clicked 'Renew Service #X'"""
     query = update.callback_query
     await query.answer()
+
+    renew_en = await settings.get_setting("menu_renew", "on")
+    if renew_en != "on":
+        await query.edit_message_text("❌ تمدید سرویس‌ها در حال حاضر غیرفعال است.")
+        return ConversationHandler.END
     
     svc_id = int(query.data.split("_")[2])
     user_id = query.from_user.id
