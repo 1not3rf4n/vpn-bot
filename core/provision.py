@@ -4,6 +4,14 @@ from datetime import datetime, timedelta
 from database.models import AsyncSessionLocal, User, Product, Service, Order, XUIPanel, Category
 from core.xui import XUIApi
 from core.settings import get_setting
+from core.config import ADMIN_IDS
+from core.v2ray_delivery import (
+    allocate_v2ray_server_names,
+    apply_remark_to_link,
+    build_service_config_link,
+    delivery_choice_keyboard,
+    format_order_confirm_with_delivery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +56,11 @@ async def provision_order_and_notify(order_id: int, bot):
             delivery_note = product.description
             
         config_link = None
+        client_email = ""
+        client_uuid = ""
+        remark = ""
+        server_serial = 0
+        inbound_id = product.panel_id or 1
         
         logger.info(f"Provisioning order {order_id}: product={product.name}, type={product.product_type}, panel_id={product.panel_id}")
         
@@ -55,38 +68,71 @@ async def provision_order_and_notify(order_id: int, bot):
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
             if panel_db:
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
-                inbound_id = product.panel_id or 1
-                
-                # Build client name: duration_volume_username_orderID (unique)
-                dur_str = f"{product.duration_days}D"
-                vol_str = f"{product.volume_gb}GB" if product.volume_gb > 0 else "Unlim"
-                uname = user.username or str(user.telegram_id)
-                email = f"{dur_str}_{vol_str}_{uname}_{order.id}"
-                
-                # Remark for the link (shown in V2ray apps)
-                remark = f"{dur_str}_{vol_str}_{uname}"
-                
+                email, remark, server_serial = await allocate_v2ray_server_names()
+                client_email = email
+
                 total_gb = product.volume_gb or 0
-                logger.info(f"Provisioning V2RAY: panel={panel_db.url}, inbound={inbound_id}, email={email}, vol={total_gb}GB")
-                
+                logger.info(
+                    f"Provisioning V2RAY: panel={panel_db.url}, inbound={inbound_id}, "
+                    f"name={remark}, email={email}, vol={total_gb}GB"
+                )
+
                 uuid_res = await client.add_client(inbound_id, email, total_gb, product.duration_days)
                 if uuid_res:
-                    direct_link = await client.build_direct_link(inbound_id, uuid_res, remark)
+                    client_uuid = uuid_res
+                    panel_links = await client.get_client_links(email)
+                    direct_link = apply_remark_to_link(panel_links[0], remark) if panel_links else None
+                    if not direct_link:
+                        direct_link = await client.build_direct_link(inbound_id, uuid_res, remark)
                     if direct_link:
                         config_link = direct_link
                         delivery_note = f"✅ سرور شما با موفقیت ساخته شد!\n\n<b>لینک مستقیم اتصال:</b>\n\n<code>{direct_link}</code>"
-                        logger.info(f"V2RAY provisioned OK: email={email}")
+                        logger.info(f"V2RAY provisioned OK: {remark}, api={client.api_mode}")
                     else:
                         delivery_note = "❌ سرور ساخته شد ولی لینک ساخته نشد. لطفا به پشتیبانی پیام دهید."
                 else:
-                    delivery_note = "❌ خطای سیستمی رخ داد و سرور اتوماتیک ساخته نشد! لطفا این فاکتور را برای پشتیبانی ارسال کنید."
-                    logger.error(f"V2RAY provision FAILED for order {order.id}")
+                    err_detail = client.last_error or "نامشخص"
+                    inbounds = await client.list_inbounds()
+                    ib_ids = [i.get("id") for i in inbounds]
+                    delivery_note = (
+                        "❌ خطای سیستمی رخ داد و سرور اتوماتیک ساخته نشد!\n"
+                        f"جزئیات: <code>{err_detail[:200]}</code>\n"
+                        f"Inbound محصول: {inbound_id} | Inboundهای پنل: {ib_ids}\n"
+                        "لطفا این فاکتور را برای پشتیبانی ارسال کنید."
+                    )
+                    logger.error(
+                        f"V2RAY provision FAILED order={order.id} inbound={inbound_id} "
+                        f"email={email} err={err_detail} panel_inbounds={ib_ids}"
+                    )
+                    for admin_id in ADMIN_IDS:
+                        try:
+                            await bot.send_message(
+                                admin_id,
+                                f"⚠️ <b>خطای ساخت V2RAY</b>\nسفارش: #{order.id}\nInbound: {inbound_id}\n"
+                                f"خطا: <code>{err_detail[:300]}</code>\nInboundهای پنل: {ib_ids}",
+                                parse_mode="HTML",
+                            )
+                        except Exception:
+                            pass
                 await client.close()
             else:
                 delivery_note = "❌ ادمین هنوز سرور متصل X-UI را به ربات معرفی نکرده است. لطفا به پشتیبانی پیام دهید."
                 
-        svc.config_link = (config_link or delivery_note) + f"\n\nکد رهگیری: {sub_code}"
+        if config_link:
+            svc.config_link = build_service_config_link(
+                config_link,
+                sub_code,
+                client_email,
+                inbound_id,
+                client_uuid,
+                remark=remark if product.product_type == "V2RAY" else "",
+                serial=server_serial if product.product_type == "V2RAY" else 0,
+            )
+        else:
+            svc.config_link = f"{delivery_note}\n\nکد رهگیری: {sub_code}"
         session.add(svc)
+        await session.flush()
+        svc_id = svc.id
         # Referral System
         if user.referred_by_id:
             try:
@@ -119,7 +165,18 @@ async def provision_order_and_notify(order_id: int, bot):
             p_name = escape(str(product.name if product else 'محصول'))
             text = raw_msg.replace("{sub_code}", f"<code>{sub_code}</code>").replace("{product_name}", f"<b>{p_name}</b>")
             
-            if config_link:
+            if config_link and product.product_type == 'V2RAY':
+                cat_del_msg = category.delivery_msg if (category and category.delivery_msg) else ""
+                final_text = format_order_confirm_with_delivery(
+                    text, sub_code, str(product.name), cat_del_msg
+                )
+                await bot.send_message(
+                    user.telegram_id,
+                    final_text,
+                    parse_mode="HTML",
+                    reply_markup=delivery_choice_keyboard(svc_id),
+                )
+            elif config_link:
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
                 keys = InlineKeyboardMarkup([
                     [InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_link))]

@@ -39,6 +39,13 @@ async def ensure_defaults():
 
         # Renewal pricing
         "renew_discount_percent": "0",
+
+        # X-UI subscription path (e.g. /sub/ or /xui/sub/)
+        "xui_sub_path": "/sub/",
+
+        # V2RAY server naming: @zyphervpnsalle1, @zyphervpnsalle2, ...
+        "v2ray_server_prefix": "zyphervpnsalle",
+        "v2ray_server_serial": "0",
     }
     for k, v in defaults.items():
         if await get_setting(k) is None:

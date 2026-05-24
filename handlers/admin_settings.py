@@ -221,7 +221,24 @@ async def save_xui_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
             panel_db.password = passw
         await session.commit()
     
-    await update.message.reply_text("✅ اطلاعات اتصال پنل با موفقیت ثبت/آپدیت شد.\nمحصولاتی که در وضعیت V2RAY ساخته شده باشند اکنون مستقیما از این پنل اکانت صادر می‌کنند.")
+    from core.xui import XUIApi
+    test = XUIApi(url, user, passw)
+    login_ok = await test.login()
+    ib_list = await test.list_inbounds() if login_ok else []
+    await test.close()
+    if login_ok:
+        ib_txt = ", ".join(str(i.get("id")) for i in ib_list[:10]) or "خالی"
+        await update.message.reply_text(
+            f"✅ پنل متصل شد (API: {test.api_mode or 'auto'})\n"
+            f"Inbound IDهای موجود: {ib_txt}\n\n"
+            "مطمئن شوید Inbound ID محصول V2RAY با یکی از این اعداد یکی باشد."
+        )
+    else:
+        await update.message.reply_text(
+            f"⚠️ اطلاعات ذخیره شد ولی اتصال تست ناموفق بود:\n<code>{test.last_error}</code>\n"
+            "آدرس پنل، یوزر و پسورد را بررسی کنید.",
+            parse_mode="HTML",
+        )
     await settings_panel(update, context)
     return ConversationHandler.END
 

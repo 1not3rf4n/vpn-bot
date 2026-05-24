@@ -1,7 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
 from database.models import AsyncSessionLocal, User, Category, Product
 from handlers.admin import check_admin, CANCEL_BTN, admin_panel
 

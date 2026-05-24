@@ -1,11 +1,129 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
-from database.models import AsyncSessionLocal, User, Category, Product, Service, Order
+from database.models import AsyncSessionLocal, User, Category, Product, Service, Order, XUIPanel
 import core.config as config
 import core.settings as settings
 from core.utils import check_forced_join
+from core.v2ray_delivery import (
+    apply_remark_to_link,
+    copy_button_row,
+    extract_direct_link,
+    extract_sub_code,
+    fetch_subscription_configs,
+    format_config_item_text,
+    make_qr_bytes,
+    parse_service_meta,
+    send_individual_configs_delivery,
+    send_subscription_delivery,
+)
+from core.xui import XUIApi
 from html import escape
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def _resolve_service_for_delivery(session, service_id: int, telegram_id: int):
+    user_db = (await session.execute(select(User).where(User.telegram_id == telegram_id))).scalars().first()
+    if not user_db:
+        return None, None, None
+    svc = (await session.execute(
+        select(Service).where(Service.id == service_id, Service.user_id == user_db.id)
+    )).scalars().first()
+    if not svc:
+        return None, None, None
+    product_name = "سرویس V2RAY"
+    if svc.panel_username and "#SUB-" in svc.panel_username:
+        try:
+            oid = int(svc.panel_username.replace("#SUB-", ""))
+            order = (await session.execute(select(Order).where(Order.id == oid))).scalars().first()
+            if order and order.product_id:
+                prod = (await session.execute(select(Product).where(Product.id == order.product_id))).scalars().first()
+                if prod:
+                    product_name = prod.name
+        except Exception:
+            pass
+    return svc, product_name, user_db
+
+
+async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send subscription QR/link or individual config QRs."""
+    query = update.callback_query
+    if not await check_forced_join(update, context):
+        await query.answer("لطفا در کانال عضو شوید.", show_alert=True)
+        return
+    await query.answer("در حال آماده‌سازی...")
+
+    is_sub = query.data.startswith("v2del_sub_")
+    svc_id = int(query.data.split("_")[-1])
+    chat_id = update.effective_chat.id
+
+    async with AsyncSessionLocal() as session:
+        svc, product_name, _ = await _resolve_service_for_delivery(session, svc_id, update.effective_user.id)
+        if not svc:
+            await query.message.reply_text("❌ سرویس یافت نشد.")
+            return
+
+        sub_code = extract_sub_code(svc.panel_username)
+        direct = extract_direct_link(svc.config_link)
+        meta = parse_service_meta(svc.config_link)
+        client_email = meta.get("email", "")
+
+        panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+        if not panel_db:
+            await query.message.reply_text("❌ پنل متصل نیست. به پشتیبانی پیام دهید.")
+            return
+
+        sub_path = await settings.get_setting("xui_sub_path", "/sub/")
+        xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+        sub_id = client_email
+        display_remark = meta.get("remark", "")
+
+        if is_sub:
+            if not sub_id:
+                await query.message.reply_text("❌ اطلاعات ساب یافت نشد.")
+                await xui.close()
+                return
+            sub_url = xui.build_subscription_url(sub_id, sub_path)
+            await xui.close()
+            try:
+                await send_subscription_delivery(
+                    context.bot, chat_id,
+                    sub_url=sub_url, sub_code=sub_code, product_name=product_name,
+                )
+            except Exception as e:
+                logger.error(f"Sub delivery failed: {e}")
+                await query.message.reply_text(
+                    f"📡 <b>لینک ساب:</b>\n<code>{sub_url}</code>",
+                    parse_mode="HTML",
+                )
+            return
+
+        links = []
+        if sub_id:
+            sub_url = xui.build_subscription_url(sub_id, sub_path)
+            links = await fetch_subscription_configs(sub_url)
+        await xui.close()
+
+        if not links and direct:
+            links = [direct]
+        if display_remark:
+            links = [apply_remark_to_link(l, display_remark) for l in links]
+        if not links and svc.config_link:
+            for line in svc.config_link.split("\n"):
+                line = line.strip()
+                if line.startswith(("vless://", "vmess://", "trojan://", "ss://")):
+                    links.append(line)
+
+        try:
+            await send_individual_configs_delivery(
+                context.bot, chat_id,
+                links=links, sub_code=sub_code, product_name=product_name,
+            )
+        except Exception as e:
+            logger.error(f"Config delivery failed: {e}")
+            await query.message.reply_text("❌ خطا در ارسال کانفیگ‌ها. دوباره تلاش کنید.")
+
 
 async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_id_passed=None):
     if not await check_forced_join(update, context):
@@ -115,11 +233,10 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
         
     elif query.data == "my_services":
         async with AsyncSessionLocal() as session:
-            # First fetch user DB id
             result = await session.execute(select(User).where(User.telegram_id == user_id))
             db_user = result.scalars().first()
             
-            result = await session.execute(select(Service).where(Service.user_id == db_user.id))
+            result = await session.execute(select(Service).where(Service.user_id == db_user.id).order_by(Service.id.desc()))
             services = result.scalars().all()
             
             keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
@@ -127,16 +244,16 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
             if not services:
                 text += "شما هیچ سرویس فعالی ندارید!"
             else:
-                # Pre-fetch all paid orders for this user to avoid N+1 queries
+                renew_en = await settings.get_setting("menu_renew", "on")
                 result = await session.execute(select(Order).where(Order.user_id == db_user.id, Order.status == 'PAID'))
                 orders_map = {o.id: o for o in result.scalars().all()}
 
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                     status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
-                    p_name = escape(s.panel_username or 'سرویس متفرقه')
-                    
-                    # Try to find purchase price
+                    svc_meta = parse_service_meta(s.config_link)
+                    p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
+
                     price_str = ""
                     if s.panel_username and "#SUB-" in s.panel_username:
                         try:
@@ -145,11 +262,19 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                                 price_str = f" | مبلغ خرید: {orders_map[oid].amount:,.0f}T"
                         except: pass
 
-                    text += f"{idx}. پنل/یوز: {p_name}\n"
+                    text += f"{idx}. سرور: <b>{p_name}</b>\n"
                     text += f"وضعیت: {status} | انقضا: {exp}{price_str}\n"
-                    if s.config_link:
-                        text += f"لینک: <code>{escape(s.config_link)}</code>\n"
                     text += "➖➖➖➖➖➖\n"
+
+                    link_part = extract_direct_link(s.config_link)
+                    is_v2 = bool(link_part)
+                    if is_v2 and s.status == "ACTIVE":
+                        keyboard.insert(-1, [
+                            InlineKeyboardButton(f"📡 ساب #{idx}", callback_data=f"v2del_sub_{s.id}"),
+                            InlineKeyboardButton(f"📋 جدا #{idx}", callback_data=f"v2del_cfg_{s.id}"),
+                        ])
+                    if renew_en == "on" and s.status == "ACTIVE" and is_v2:
+                        keyboard.insert(-1, [InlineKeyboardButton(f"🔄 تمدید #{idx}", callback_data=f"renew_svc_{s.id}")])
             
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
@@ -162,8 +287,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if shop_en != "on":
             await update.message.reply_text("❌ فروشگاه در حال حاضر بسته است.")
             return
-        from handlers.shop import shop_nav
-        # Since shop_nav requires a query, we send the base menu directly
+        # shop_nav needs callback_query; build menu inline
         async with AsyncSessionLocal() as session:
             cats = (await session.execute(select(Category).where(Category.parent_id == None))).scalars().all()
             prods = (await session.execute(select(Product).where(Product.category_id == None))).scalars().all()
@@ -232,9 +356,9 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                     status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
-                    p_name = escape(s.panel_username or 'سرویس متفرقه')
-                    
-                    # Try to find purchase price
+                    svc_meta = parse_service_meta(s.config_link)
+                    p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
+
                     price_str = ""
                     if s.panel_username and "#SUB-" in s.panel_username:
                         try:
@@ -243,18 +367,22 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 price_str = f" | مبلغ خرید: {orders_map[oid].amount:,.0f}T"
                         except: pass
 
-                    msg += f"{idx}. سرور: {p_name}\n"
+                    msg += f"{idx}. سرور: <b>{p_name}</b>\n"
                     msg += f"وضعیت: {status} | انقضا: {exp}{price_str}\n"
                     msg += "➖➖➖➖➖➖\n"
                     
-                    # Extract config link (first line that looks like vless:// or vmess://)
-                    if s.config_link:
-                        link_part = s.config_link.split("\n")[0].strip()
-                        if link_part.startswith("vless://") or link_part.startswith("vmess://"):
-                            keys.append([InlineKeyboardButton(f"📋 کپی لینک سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
-                    
-                    # Only show renewal for V2RAY active services
-                    if renew_en == "on" and s.status == "ACTIVE":
+                    link_part = extract_direct_link(s.config_link)
+                    is_v2 = bool(link_part)
+                    if is_v2 and s.status == "ACTIVE":
+                        keys.append([
+                            InlineKeyboardButton(f"📡 دریافت ساب #{idx}", callback_data=f"v2del_sub_{s.id}"),
+                            InlineKeyboardButton(f"📋 کانفیگ جدا #{idx}", callback_data=f"v2del_cfg_{s.id}"),
+                        ])
+                    elif link_part:
+                        if len(link_part) <= 256:
+                            keys.append([InlineKeyboardButton(f"📋 کپی لینک #{idx}", copy_text=CopyTextButton(text=link_part))])
+
+                    if renew_en == "on" and s.status == "ACTIVE" and is_v2:
                         keys.append([InlineKeyboardButton(f"🔄 تمدید سرویس #{idx}", callback_data=f"renew_svc_{s.id}")])
             
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
@@ -332,6 +460,23 @@ async def free_config_detail_handler(update: Update, context: ContextTypes.DEFAU
         is_v2ray = any(l.startswith('vless://') or l.startswith('vmess://') for l in links)
         
         btn_list = []
+        if is_v2ray and len(links) == 1:
+            link = links[0]
+            caption = format_config_item_text(1, 1, link, c_title)
+            btn_list = copy_button_row(link, "📋 کپی لینک")
+            btn_list.append([InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="back_to_free_list")])
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_photo(
+                query.message.chat_id,
+                photo=make_qr_bytes(link),
+                caption=f"🎁 <b>کانفیگ رایگان: {c_title}</b>\n\nکشور: {c_country}\n\n{caption}",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(btn_list),
+            )
+            return
         if is_v2ray:
             msg += f"لینک/کد:\n<code>{escape(config_text)}</code>"
             if len(config_text) <= 256:

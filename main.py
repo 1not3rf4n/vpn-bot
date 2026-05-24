@@ -90,6 +90,8 @@ def main():
         logger.info(f"Callback data received: {update.callback_query.data} from user {update.effective_user.id}")
     application.add_handler(CallbackQueryHandler(log_call), group=-1)
 
+    from handlers.user import handle_v2ray_delivery
+    application.add_handler(CallbackQueryHandler(handle_v2ray_delivery, pattern=r"^v2del_(sub|cfg)_\d+$"))
     application.add_handler(CallbackQueryHandler(user_dashboard_callbacks)) # Fallback user callbacks
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), main_menu_handler))
 
