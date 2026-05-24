@@ -158,6 +158,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg or not msg.text: return
     text = msg.text
     if text == "🛒 فروشگاه":
+        shop_en = await settings.get_setting("menu_shop", "on")
+        if shop_en != "on":
+            await update.message.reply_text("❌ فروشگاه در حال حاضر بسته است.")
+            return
         from handlers.shop import shop_nav
         # Since shop_nav requires a query, we send the base menu directly
         async with AsyncSessionLocal() as session:

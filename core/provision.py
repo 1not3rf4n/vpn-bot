@@ -1,7 +1,7 @@
 import logging
 from sqlalchemy.future import select
 from datetime import datetime, timedelta
-from database.models import AsyncSessionLocal, User, Product, Service, Order, XUIPanel
+from database.models import AsyncSessionLocal, User, Product, Service, Order, XUIPanel, Category
 from core.xui import XUIApi
 from core.settings import get_setting
 
@@ -36,8 +36,17 @@ async def provision_order_and_notify(order_id: int, bot):
             
         sub_code = f"#SUB-{order.id}"
         svc.panel_username = sub_code
-        
-        delivery_note = product.description or "جهت تحویل کانفیگ به پشتیبانی پیام دهید."
+        # Load category to check if it has a custom delivery message
+        category = None
+        if product.category_id:
+            category = (await session.execute(select(Category).where(Category.id == product.category_id))).scalars().first()
+            
+        delivery_note = "جهت تحویل کانفیگ به پشتیبانی پیام دهید."
+        if category and category.delivery_msg:
+            delivery_note = category.delivery_msg
+        elif product.description:
+            delivery_note = product.description
+            
         config_link = None
         
         logger.info(f"Provisioning order {order_id}: product={product.name}, type={product.product_type}, panel_id={product.panel_id}")
@@ -115,7 +124,11 @@ async def provision_order_and_notify(order_id: int, bot):
                 keys = InlineKeyboardMarkup([
                     [InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_link))]
                 ])
-                final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n✅ سرور ساخته شد!\n\n<b>لینک مستقیم (کپی کنید):</b>\n\n<code>{config_link}</code>"
+                cat_del_msg = category.delivery_msg if (category and category.delivery_msg) else ""
+                if cat_del_msg:
+                    final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n{cat_del_msg}\n\n<b>لینک مستقیم (کپی کنید):</b>\n\n<code>{config_link}</code>"
+                else:
+                    final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n✅ سرور ساخته شد!\n\n<b>لینک مستقیم (کپی کنید):</b>\n\n<code>{config_link}</code>"
                 await bot.send_message(user.telegram_id, final_text, parse_mode="HTML", reply_markup=keys)
             else:
                 final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n{delivery_note}"

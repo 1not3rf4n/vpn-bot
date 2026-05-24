@@ -7,6 +7,7 @@ from handlers.admin import check_admin, CANCEL_BTN, admin_panel
 
 (WAIT_CAT_NAME, WAIT_PROD_V2RAY, WAIT_PROD_VOL, WAIT_PROD_INBOUND, WAIT_PROD_NAME, WAIT_PROD_PRICE, WAIT_PROD_DUR, WAIT_PROD_DESC) = range(50, 58)
 (EDIT_PROD_NAME, EDIT_PROD_PRICE, EDIT_PROD_DUR, EDIT_PROD_DESC, EDIT_PROD_INBOUND, EDIT_PROD_VOL) = range(58, 64)
+(EDIT_CAT_NAME, EDIT_CAT_DESC) = range(64, 66)
 
 
 async def admin_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id=None):
@@ -34,7 +35,12 @@ async def admin_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, par
 
     from html import escape
     cat_name = escape(current_cat.name) if current_cat else 'خانه'
-    text = f"🗂 <b>مدیریت فروشگاه</b>\n\n📌 موقعیت: {cat_name}\nانتخاب کنید:"
+    text = f"🗂 <b>مدیریت فروشگاه</b>\n\n📌 موقعیت: {cat_name}"
+    if current_cat:
+        del_msg = getattr(current_cat, 'delivery_msg', None) or "پیش‌فرض محصول"
+        text += f"\n✉️ توضیحات تحویل: <i>{escape(del_msg)}</i>"
+    text += "\n\nانتخاب کنید:"
+    
     keyboard = []
 
     for c in sub_cats:
@@ -58,6 +64,12 @@ async def admin_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, par
         kb_actions.append(InlineKeyboardButton(
             "➕ محصول جدید", callback_data=f"adm_addp_{parent_id}"))
     keyboard.append(kb_actions)
+
+    if parent_id:
+        keyboard.append([
+            InlineKeyboardButton("📝 ویرایش توضیحات تحویل دسته", callback_data=f"adm_editcdesc_{parent_id}"),
+            InlineKeyboardButton("✏️ ویرایش نام دسته", callback_data=f"adm_editcname_{parent_id}")
+        ])
 
     if parent_id and current_cat.parent_id:
         keyboard.append([InlineKeyboardButton(
@@ -159,6 +171,63 @@ async def save_new_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
     await update.message.reply_text("✅ با موفقیت ایجاد شد.")
     await admin_shop_nav(update, context, pid)
+    return ConversationHandler.END
+
+# --- Editing Categories ---
+
+async def start_edit_cat_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split("_")[3])
+    context.user_data['edit_cat_id'] = cid
+    await query.edit_message_text("نام جدید دسته‌بندی را وارد کنید:", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+    return EDIT_CAT_NAME
+
+async def save_edit_cat_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = update.message.text
+    cid = context.user_data.get('edit_cat_id')
+    async with AsyncSessionLocal() as session:
+        cat = (await session.execute(select(Category).where(Category.id == cid))).scalars().first()
+        if cat:
+            cat.name = name
+            parent_id = cat.parent_id
+            await session.commit()
+            await update.message.reply_text("✅ نام دسته‌بندی با موفقیت ویرایش شد.")
+        else:
+            parent_id = None
+            await update.message.reply_text("❌ دسته‌بندی یافت نشد.")
+    await admin_shop_nav(update, context, parent_id)
+    return ConversationHandler.END
+
+async def start_edit_cat_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split("_")[3])
+    context.user_data['edit_cat_id'] = cid
+    await query.edit_message_text(
+        "توضیحات تحویل جدید برای این دسته‌بندی را وارد کنید:\n"
+        "(این پیام پس از خرید محصولات این دسته به کاربر فرستاده می‌شود. "
+        "برای بازگشت به حالت پیش‌فرض /empty بفرستید)", 
+        reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+    )
+    return EDIT_CAT_DESC
+
+async def save_edit_cat_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message.text
+    if msg.strip() == "/empty":
+        msg = None
+    cid = context.user_data.get('edit_cat_id')
+    async with AsyncSessionLocal() as session:
+        cat = (await session.execute(select(Category).where(Category.id == cid))).scalars().first()
+        if cat:
+            cat.delivery_msg = msg
+            parent_id = cat.parent_id
+            await session.commit()
+            await update.message.reply_text("✅ توضیحات تحویل دسته‌بندی با موفقیت ویرایش شد.")
+        else:
+            parent_id = None
+            await update.message.reply_text("❌ دسته‌بندی یافت نشد.")
+    await admin_shop_nav(update, context, parent_id)
     return ConversationHandler.END
 
 # --- Adding Products ---
@@ -410,7 +479,9 @@ def get_admin_shop_conv_handler():
             CallbackQueryHandler(start_edit_dur, pattern="^adm_editp_dur_"),
             CallbackQueryHandler(start_edit_desc, pattern="^adm_editp_desc_"),
             CallbackQueryHandler(start_edit_inbound, pattern="^adm_editp_inb_"),
-            CallbackQueryHandler(start_edit_vol, pattern="^adm_editp_vol_")
+            CallbackQueryHandler(start_edit_vol, pattern="^adm_editp_vol_"),
+            CallbackQueryHandler(start_edit_cat_name, pattern="^adm_editcname_"),
+            CallbackQueryHandler(start_edit_cat_desc, pattern="^adm_editcdesc_")
         ],
         states={
             WAIT_CAT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_cat)],
@@ -429,7 +500,9 @@ def get_admin_shop_conv_handler():
             EDIT_PROD_INBOUND: [MessageHandler(
                 filters.TEXT & ~filters.COMMAND, save_edit_inbound)],
             EDIT_PROD_VOL: [MessageHandler(
-                filters.TEXT & ~filters.COMMAND, save_edit_vol)]
+                filters.TEXT & ~filters.COMMAND, save_edit_vol)],
+            EDIT_CAT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_edit_cat_name)],
+            EDIT_CAT_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_edit_cat_desc)]
         },
         fallbacks=[
             CommandHandler("cancel", cancel_shop),

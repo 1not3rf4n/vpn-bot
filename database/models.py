@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Float, DateTime, Text
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -35,6 +36,7 @@ class Category(Base):
     name = Column(String(255))
     parent_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
     is_active = Column(Boolean, default=True)
+    delivery_msg = Column(Text, nullable=True)
     
     children = relationship("Category", backref="parent", remote_side=[id])
     products = relationship("Product", back_populates="category")

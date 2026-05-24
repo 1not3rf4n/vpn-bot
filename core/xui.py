@@ -9,12 +9,17 @@ logger = logging.getLogger(__name__)
 
 class XUIApi:
     def __init__(self, url, username, password):
-        self.url = url.rstrip('/')
+        # Normalize URL by removing any trailing panel subpaths
+        url_clean = url.rstrip('/')
+        for path_to_strip in ['/panel/inbounds', '/panel/inbound', '/panel', '/inbounds']:
+            if url_clean.endswith(path_to_strip):
+                url_clean = url_clean[:-len(path_to_strip)]
+        self.url = url_clean.rstrip('/')
         self.username = username
         self.password = password
         self.session = httpx.AsyncClient(verify=False, timeout=15.0)
         self.logged_in = False
-        self.server_ip = urlparse(url).hostname
+        self.server_ip = urlparse(self.url).hostname
 
     async def login(self):
         try:
@@ -86,7 +91,7 @@ class XUIApi:
         try:
             res = await self.session.post(
                 f"{self.url}/xui/inbound/addClient",
-                json=payload
+                data=payload
             )
             body = res.json()
             if res.status_code == 200 and body.get('success'):
@@ -233,7 +238,7 @@ class XUIApi:
         try:
             res = await self.session.post(
                 f"{self.url}/xui/inbound/updateClient/{client_uuid}",
-                json=payload
+                data=payload
             )
             body = res.json()
             if body.get('success'):

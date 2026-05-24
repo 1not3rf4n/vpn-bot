@@ -15,6 +15,16 @@ CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callbac
 async def shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id=None):
     query = update.callback_query
     
+    shop_en = await settings.get_setting("menu_shop", "on")
+    if shop_en != "on":
+        text = "❌ فروشگاه در حال حاضر بسته است."
+        if query:
+            await query.answer()
+            await query.edit_message_text(text)
+        else:
+            await update.message.reply_text(text)
+        return
+        
     async with AsyncSessionLocal() as session:
         current_cat = None
         if parent_id:
@@ -56,6 +66,11 @@ async def shop_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    shop_en = await settings.get_setting("menu_shop", "on")
+    if shop_en != "on":
+        await query.edit_message_text("❌ فروشگاه در حال حاضر بسته است.")
+        return
+    
     if query.data == "shop_categories":
         await shop_nav(update, context, None)
     elif query.data.startswith("usr_cat_"):
@@ -92,6 +107,11 @@ async def send_invoice_panel(query, context, product):
 async def checkout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
+    shop_en = await settings.get_setting("menu_shop", "on")
+    if shop_en != "on":
+        await query.edit_message_text("❌ فروشگاه در حال حاضر بسته است.")
+        return ConversationHandler.END
     p_id = int(query.data.split("_")[1])
     context.user_data['checkout_prod_id'] = p_id
     
