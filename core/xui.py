@@ -5,17 +5,16 @@ import logging
 import time
 import re
 import asyncio
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse, urljoin, quote
 
 logger = logging.getLogger(__name__)
 
-# API route sets: legacy sanaei x-ui vs modern 3x-ui
-API_LEGACY = "legacy"
-API_3XUI = "3xui"
+API_LEGACY = "legacy"          # /xui/inbound/*
+API_3XUI_PANEL = "3xui_panel"  # /panel/inbound/*  (common on reverse-proxied 3x-ui)
+API_3XUI = "3xui"              # /panel/api/inbounds/* or /panel/api/clients/*
 
 
 def _sanitize_email(email: str) -> str:
-    """Panel rejects some characters in client email."""
     email = re.sub(r"[^a-zA-Z0-9_.@-]", "_", email)
     return email[:64] if len(email) > 64 else email
 
@@ -23,26 +22,42 @@ def _sanitize_email(email: str) -> str:
 def _parse_json_response(res: httpx.Response) -> dict:
     text = (res.text or "").strip()
     if not text:
-        return {"success": False, "msg": "empty response", "status": res.status_code}
+        return {
+            "success": False,
+            "msg": f"empty response (HTTP {res.status_code})",
+            "status": res.status_code,
+        }
     try:
         return res.json()
     except Exception:
-        return {"success": False, "msg": text[:500], "status": res.status_code}
+        return {
+            "success": False,
+            "msg": f"non-JSON HTTP {res.status_code}: {text[:200]}",
+            "status": res.status_code,
+        }
 
 
 class XUIApi:
     def __init__(self, url, username, password):
-        url_clean = url.rstrip('/')
-        for path_to_strip in ['/panel/inbounds', '/panel/inbound', '/panel/api/inbounds', '/panel', '/inbounds', '/xui']:
+        url_clean = url.rstrip("/")
+        for path_to_strip in (
+            "/panel/api/inbounds",
+            "/panel/api/inbound",
+            "/panel/inbounds",
+            "/panel/inbound",
+            "/panel",
+            "/inbounds",
+            "/xui",
+        ):
             if url_clean.endswith(path_to_strip):
-                url_clean = url_clean[:-len(path_to_strip)]
-        self.url = url_clean.rstrip('/')
+                url_clean = url_clean[: -len(path_to_strip)]
+        self.url = url_clean.rstrip("/")
         self.username = username
         self.password = password
         self.session = httpx.AsyncClient(
             verify=False,
-            timeout=20.0,
-            follow_redirects=True,
+            timeout=25.0,
+            follow_redirects=False,
             headers={
                 "Accept": "application/json, text/plain, */*",
                 "X-Requested-With": "XMLHttpRequest",
@@ -57,17 +72,51 @@ class XUIApi:
     def last_error(self) -> str:
         return self._last_error
 
+    def _abs_url(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        if not path.startswith("/"):
+            path = "/" + path
+        return f"{self.url}{path}"
+
+    async def _post(self, path: str, max_redirects: int = 3, **kwargs) -> httpx.Response:
+        """
+        POST without auto-follow (301 turns POST into GET in many clients).
+        Manually re-POST to Location, preserving body.
+        """
+        url = self._abs_url(path)
+        res = await self.session.post(url, **kwargs)
+        redirects = 0
+        while res.status_code in (301, 302, 307, 308) and redirects < max_redirects:
+            loc = res.headers.get("location")
+            if not loc:
+                break
+            url = urljoin(url, loc)
+            res = await self.session.post(url, **kwargs)
+            redirects += 1
+        return res
+
+    async def _get(self, path: str, max_redirects: int = 3, **kwargs) -> httpx.Response:
+        url = self._abs_url(path)
+        res = await self.session.get(url, **kwargs)
+        redirects = 0
+        while res.status_code in (301, 302, 307, 308) and redirects < max_redirects:
+            loc = res.headers.get("location")
+            if not loc:
+                break
+            url = urljoin(url, loc)
+            res = await self.session.get(url, **kwargs)
+            redirects += 1
+        return res
+
     async def login(self):
         try:
-            res = await self.session.post(
-                f"{self.url}/login",
-                data={"username": self.username, "password": self.password},
-            )
+            res = await self._post("/login", data={"username": self.username, "password": self.password})
             body = _parse_json_response(res)
             if res.status_code == 200 and body.get("success"):
                 self.logged_in = True
                 await self._detect_api_mode()
-                logger.info(f"X-UI login OK, api_mode={self.api_mode}, url={self.url}")
+                logger.info(f"X-UI login OK mode={self.api_mode} base={self.url}")
                 return True
             self._last_error = body.get("msg") or f"HTTP {res.status_code}"
             logger.error(f"X-UI Login failed: {body}")
@@ -78,52 +127,53 @@ class XUIApi:
             return False
 
     async def _detect_api_mode(self):
-        """Probe which API paths this panel supports."""
         probes = [
-            (API_3XUI, "GET", f"{self.url}/panel/api/inbounds/list"),
-            (API_LEGACY, "POST", f"{self.url}/xui/inbound/list"),
-            (API_3XUI, "POST", f"{self.url}/panel/api/inbounds/list"),
+            (API_3XUI_PANEL, "/panel/inbound/list"),
+            (API_3XUI, "/panel/api/inbounds/list"),
+            (API_LEGACY, "/xui/inbound/list"),
         ]
-        for mode, method, url in probes:
+        for mode, path in probes:
             try:
-                if method == "GET":
-                    res = await self.session.get(url)
-                else:
-                    res = await self.session.post(url)
+                res = await self._post(path)
                 body = _parse_json_response(res)
-                if res.status_code == 200 and (body.get("success") or body.get("obj") is not None):
+                if res.status_code == 200 and body.get("success"):
+                    self.api_mode = mode
+                    logger.info(f"X-UI API mode detected: {mode} via {path}")
+                    return
+                if res.status_code == 200 and isinstance(body.get("obj"), list):
                     self.api_mode = mode
                     return
-            except Exception:
-                continue
-        self.api_mode = API_LEGACY
-
-    async def _request(self, method: str, path: str, **kwargs) -> tuple[httpx.Response, dict]:
-        url = f"{self.url}{path}" if path.startswith("/") else path
-        if method == "GET":
-            res = await self.session.get(url, **kwargs)
-        else:
-            res = await self.session.post(url, **kwargs)
-        return res, _parse_json_response(res)
+            except Exception as e:
+                logger.debug(f"probe {path}: {e}")
+        self.api_mode = API_3XUI_PANEL
 
     async def list_inbounds(self) -> list:
         if not self.logged_in and not await self.login():
             return []
-        paths = []
-        if self.api_mode == API_3XUI:
-            paths = ["/panel/api/inbounds/list"]
-        else:
-            paths = ["/xui/inbound/list", "/panel/api/inbounds/list", "/panel/inbound/list"]
+
+        paths_by_mode = {
+            API_3XUI_PANEL: ["/panel/inbound/list"],
+            API_3XUI: ["/panel/api/inbounds/list"],
+            API_LEGACY: ["/xui/inbound/list"],
+        }
+        paths = paths_by_mode.get(self.api_mode, [])
+        paths += [p for m, ps in paths_by_mode.items() for p in ps if p not in paths]
+
         for path in paths:
             try:
-                res, body = await self._request("POST" if "xui" in path else "GET", path)
-                if not body.get("success"):
-                    res, body = await self._request("POST", path)
+                res = await self._post(path) if "inbound" in path else await self._get(path)
+                if res.status_code != 200 and "api/inbounds" in path:
+                    res = await self._post(path)
+                body = _parse_json_response(res)
                 if body.get("success"):
                     obj = body.get("obj") or body.get("data") or []
                     if isinstance(obj, list):
-                        if not self.api_mode and "/panel/api/" in path:
+                        if "/panel/inbound" in path:
+                            self.api_mode = API_3XUI_PANEL
+                        elif "/panel/api/" in path:
                             self.api_mode = API_3XUI
+                        elif "/xui/" in path:
+                            self.api_mode = API_LEGACY
                         return obj
             except Exception as e:
                 logger.debug(f"list_inbounds {path}: {e}")
@@ -135,12 +185,17 @@ class XUIApi:
         for inb in await self.list_inbounds():
             if int(inb.get("id", -1)) == int(inbound_id):
                 return inb
-        try:
-            res, body = await self._request("GET", f"/panel/api/inbounds/get/{inbound_id}")
-            if body.get("success"):
-                return body.get("obj") or body.get("data")
-        except Exception:
-            pass
+        for path in (
+            f"/panel/api/inbounds/get/{inbound_id}",
+            f"/panel/inbound/get/{inbound_id}",
+        ):
+            try:
+                res = await self._get(path)
+                body = _parse_json_response(res)
+                if body.get("success"):
+                    return body.get("obj") or body.get("data")
+            except Exception:
+                pass
         return None
 
     def _inbound_needs_flow(self, inbound: dict) -> str:
@@ -150,9 +205,6 @@ class XUIApi:
                 stream = json.loads(stream)
             if stream.get("security") == "reality":
                 return "xtls-rprx-vision"
-            sniffing = inbound.get("sniffing") or {}
-            if isinstance(sniffing, str):
-                sniffing = json.loads(sniffing)
         except Exception:
             pass
         return ""
@@ -178,8 +230,9 @@ class XUIApi:
         sub_id = email
 
         strategies = [
+            self._add_client_panel_inbound,
+            self._add_client_3xui_api_form,
             self._add_client_modern,
-            self._add_client_3xui_form,
             self._add_client_legacy,
         ]
         for attempt in range(3):
@@ -190,15 +243,73 @@ class XUIApi:
                 if result:
                     return result
             if attempt < 2:
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(1.2)
 
-        logger.error(f"X-UI addClient all strategies failed: {self._last_error}")
+        logger.error(f"X-UI addClient all failed: {self._last_error}")
+        return None
+
+    def _client_payload(self, client_uuid, email, total_bytes, expiry_time, limit_ip, flow, sub_id):
+        return {
+            "id": client_uuid,
+            "flow": flow,
+            "email": email,
+            "limitIp": limit_ip,
+            "totalGB": total_bytes,
+            "expiryTime": expiry_time,
+            "enable": True,
+            "tgId": "",
+            "subId": sub_id,
+            "reset": 0,
+        }
+
+    async def _add_client_panel_inbound(
+        self, inbound_id, email, client_uuid, total_bytes, expiry_time, limit_ip, flow, sub_id
+    ):
+        """POST /panel/inbound/addClient — matches sayradical / reverse-proxy panels."""
+        client_data = self._client_payload(
+            client_uuid, email, total_bytes, expiry_time, limit_ip, flow, sub_id
+        )
+        payload = {
+            "id": inbound_id,
+            "settings": json.dumps({"clients": [client_data]}),
+        }
+        try:
+            res = await self._post("/panel/inbound/addClient", data=payload)
+            body = _parse_json_response(res)
+            if res.status_code == 200 and body.get("success"):
+                self.api_mode = API_3XUI_PANEL
+                logger.info(f"X-UI client created (/panel/inbound/addClient): {email}")
+                return client_uuid
+            self._last_error = f"[panel/inbound] HTTP {res.status_code}: {body.get('msg') or body}"
+        except Exception as e:
+            self._last_error = f"[panel/inbound] {e}"
+        return None
+
+    async def _add_client_3xui_api_form(
+        self, inbound_id, email, client_uuid, total_bytes, expiry_time, limit_ip, flow, sub_id
+    ):
+        client_data = self._client_payload(
+            client_uuid, email, total_bytes, expiry_time, limit_ip, flow, sub_id
+        )
+        payload = {
+            "id": inbound_id,
+            "settings": json.dumps({"clients": [client_data]}),
+        }
+        try:
+            res = await self._post("/panel/api/inbounds/addClient", data=payload)
+            body = _parse_json_response(res)
+            if res.status_code == 200 and body.get("success"):
+                self.api_mode = API_3XUI
+                logger.info(f"X-UI client created (/panel/api/inbounds/addClient): {email}")
+                return client_uuid
+            self._last_error = f"[api/inbounds] HTTP {res.status_code}: {body.get('msg') or body}"
+        except Exception as e:
+            self._last_error = f"[api/inbounds] {e}"
         return None
 
     async def _add_client_modern(
         self, inbound_id, email, client_uuid, total_bytes, expiry_time, limit_ip, flow, sub_id
     ):
-        """3x-ui v2+ POST /panel/api/clients/add (JSON)."""
         payload = {
             "client": {
                 "id": client_uuid,
@@ -216,108 +327,59 @@ class XUIApi:
             "inboundIds": [int(inbound_id)],
         }
         try:
-            res = await self.session.post(
-                f"{self.url}/panel/api/clients/add",
-                json=payload,
-            )
+            res = await self._post("/panel/api/clients/add", json=payload)
             body = _parse_json_response(res)
             if res.status_code == 200 and body.get("success"):
                 self.api_mode = API_3XUI
-                logger.info(f"X-UI client created (modern API): {email}")
+                logger.info(f"X-UI client created (/panel/api/clients/add): {email}")
                 return client_uuid
-            self._last_error = body.get("msg") or str(body)
-            if total_bytes > 0:
-                payload["client"]["totalGB"] = int(total_bytes / 1073741824)
-                res2 = await self.session.post(f"{self.url}/panel/api/clients/add", json=payload)
-                body2 = _parse_json_response(res2)
-                if res2.status_code == 200 and body2.get("success"):
-                    logger.info(f"X-UI client created (modern API, GB units): {email}")
-                    return client_uuid
+            self._last_error = f"[clients/add] HTTP {res.status_code}: {body.get('msg') or body}"
         except Exception as e:
-            self._last_error = str(e)
-        return None
-
-    async def _add_client_3xui_form(
-        self, inbound_id, email, client_uuid, total_bytes, expiry_time, limit_ip, flow, sub_id
-    ):
-        client_data = {
-            "id": client_uuid,
-            "flow": flow,
-            "email": email,
-            "limitIp": limit_ip,
-            "totalGB": total_bytes,
-            "expiryTime": expiry_time,
-            "enable": True,
-            "tgId": "",
-            "subId": sub_id,
-            "reset": 0,
-        }
-        payload = {
-            "id": inbound_id,
-            "settings": json.dumps({"clients": [client_data]}),
-        }
-        paths = [
-            "/panel/api/inbounds/addClient",
-            "/panel/inbound/addClient",
-        ]
-        for path in paths:
-            try:
-                res = await self.session.post(f"{self.url}{path}", data=payload)
-                body = _parse_json_response(res)
-                if res.status_code == 200 and body.get("success"):
-                    self.api_mode = API_3XUI
-                    logger.info(f"X-UI client created ({path}): {email}")
-                    return client_uuid
-                self._last_error = body.get("msg") or str(body)
-            except Exception as e:
-                self._last_error = str(e)
+            self._last_error = f"[clients/add] {e}"
         return None
 
     async def _add_client_legacy(
         self, inbound_id, email, client_uuid, total_bytes, expiry_time, limit_ip, flow, sub_id
     ):
-        client_data = {
-            "id": client_uuid,
-            "flow": flow,
-            "email": email,
-            "limitIp": limit_ip,
-            "totalGB": total_bytes,
-            "expiryTime": expiry_time,
-            "enable": True,
-            "tgId": "",
-            "subId": sub_id,
-        }
+        client_data = self._client_payload(
+            client_uuid, email, total_bytes, expiry_time, limit_ip, flow, sub_id
+        )
         payload = {
             "id": inbound_id,
             "settings": json.dumps({"clients": [client_data]}),
         }
         try:
-            res = await self.session.post(f"{self.url}/xui/inbound/addClient", data=payload)
+            res = await self._post("/xui/inbound/addClient", data=payload)
             body = _parse_json_response(res)
             if res.status_code == 200 and body.get("success"):
                 self.api_mode = API_LEGACY
-                logger.info(f"X-UI client created (legacy): {email}")
+                logger.info(f"X-UI client created (/xui/inbound/addClient): {email}")
                 return client_uuid
-            self._last_error = body.get("msg") or str(body)
+            self._last_error = f"[xui] HTTP {res.status_code}: {body.get('msg') or body}"
         except Exception as e:
-            self._last_error = str(e)
+            self._last_error = f"[xui] {e}"
         return None
 
     async def get_client_links(self, email: str) -> list[str]:
-        """Fetch connection links from panel API when available."""
         if not self.logged_in and not await self.login():
             return []
         email = _sanitize_email(email)
-        try:
-            res, body = await self._request("GET", f"/panel/api/clients/links/{quote(email, safe='')}")
-            if body.get("success"):
-                obj = body.get("obj") or body.get("data") or []
-                if isinstance(obj, list):
-                    return [str(x).strip() for x in obj if x]
-                if isinstance(obj, str) and obj.strip():
-                    return [obj.strip()]
-        except Exception as e:
-            logger.debug(f"get_client_links: {e}")
+        paths = [
+            f"/panel/api/clients/links/{quote(email, safe='')}",
+            f"/panel/inbound/getClientLinks/{quote(email, safe='')}",
+        ]
+        for path in paths:
+            try:
+                res = await self._get(path)
+                body = _parse_json_response(res)
+                if body.get("success"):
+                    obj = body.get("obj") or body.get("data") or []
+                    if isinstance(obj, list):
+                        return [str(x).strip() for x in obj if x]
+                    if isinstance(obj, str) and obj.strip():
+                        return [obj.strip()]
+            except Exception as e:
+                logger.debug(f"get_client_links {path}: {e}")
         return []
 
     async def build_direct_link(self, inbound_id: int, client_uuid: str, remark: str):
@@ -327,7 +389,11 @@ class XUIApi:
 
         protocol = inbound.get("protocol", "vless")
         port = inbound.get("port", 443)
-        stream = json.loads(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), str) else (inbound.get("streamSettings") or {})
+        stream = (
+            json.loads(inbound["streamSettings"])
+            if isinstance(inbound.get("streamSettings"), str)
+            else (inbound.get("streamSettings") or {})
+        )
 
         network = stream.get("network", "tcp")
         security = stream.get("security", "none")
@@ -345,8 +411,7 @@ class XUIApi:
                     params += f"&host={host}"
             elif network == "grpc":
                 grpc = stream.get("grpcSettings", {})
-                sn = grpc.get("serviceName", "")
-                params += f"&serviceName={sn}"
+                params += f"&serviceName={grpc.get('serviceName', '')}"
             elif network == "tcp":
                 tcp = stream.get("tcpSettings", {})
                 header_type = tcp.get("header", {}).get("type", "none")
@@ -354,29 +419,24 @@ class XUIApi:
 
             if security == "tls":
                 tls = stream.get("tlsSettings", {})
-                sni = tls.get("serverName", "")
-                fp = tls.get("fingerprint", "")
-                if sni:
-                    params += f"&sni={sni}"
-                if fp:
-                    params += f"&fp={fp}"
+                if tls.get("serverName"):
+                    params += f"&sni={tls['serverName']}"
+                if tls.get("fingerprint"):
+                    params += f"&fp={tls['fingerprint']}"
             elif security == "reality":
                 real = stream.get("realitySettings", {})
-                pbk = real.get("publicKey", "")
-                sid = real.get("shortId", "")
-                sni = real.get("serverNames", [""])[0] if real.get("serverNames") else ""
-                fp = real.get("fingerprint", "")
                 flow = self._inbound_needs_flow(inbound)
                 if flow:
                     params += f"&flow={flow}"
-                if pbk:
-                    params += f"&pbk={pbk}"
-                if sid:
-                    params += f"&sid={sid}"
+                if real.get("publicKey"):
+                    params += f"&pbk={real['publicKey']}"
+                if real.get("shortId"):
+                    params += f"&sid={real['shortId']}"
+                sni = real.get("serverNames", [""])[0] if real.get("serverNames") else ""
                 if sni:
                     params += f"&sni={sni}"
-                if fp:
-                    params += f"&fp={fp}"
+                if real.get("fingerprint"):
+                    params += f"&fp={real['fingerprint']}"
 
             return f"vless://{client_uuid}@{self.server_ip}:{port}?{params}#{encoded_remark}"
 
@@ -413,13 +473,15 @@ class XUIApi:
             return False
         email = _sanitize_email(email)
         paths = [
+            f"/panel/inbound/{inbound_id}/resetClientTraffic/{email}",
             f"/panel/api/inbounds/{inbound_id}/resetClientTraffic/{email}",
             f"/xui/inbound/{inbound_id}/resetClientTraffic/{email}",
             f"/panel/api/clients/resetTraffic/{quote(email, safe='')}",
         ]
         for path in paths:
             try:
-                res, body = await self._request("POST", path)
+                res = await self._post(path)
+                body = _parse_json_response(res)
                 if body.get("success"):
                     return True
             except Exception:
@@ -448,37 +510,27 @@ class XUIApi:
             "subId": email,
         }
         try:
-            res, body = await self._request(
-                "POST",
-                f"/panel/api/clients/update/{quote(email, safe='')}",
-                json=payload,
-            )
+            res = await self._post(f"/panel/api/clients/update/{quote(email, safe='')}", json=payload)
+            body = _parse_json_response(res)
             if body.get("success"):
                 return True
         except Exception:
             pass
 
-        client_data = {
-            "id": client_uuid,
-            "flow": "",
-            "email": email,
-            "limitIp": limit_ip,
-            "totalGB": total_bytes,
-            "expiryTime": expiry_time,
-            "enable": True,
-            "tgId": "",
-            "subId": email,
-        }
         form_payload = {
             "id": inbound_id,
-            "settings": json.dumps({"clients": [client_data]}),
+            "settings": json.dumps({"clients": [self._client_payload(
+                client_uuid, email, total_bytes, expiry_time, limit_ip, "", email
+            )]}),
         }
         for path in (
+            f"/panel/inbound/updateClient/{client_uuid}",
             f"/panel/api/inbounds/updateClient/{client_uuid}",
             f"/xui/inbound/updateClient/{client_uuid}",
         ):
             try:
-                res, body = await self._request("POST", path, data=form_payload)
+                res = await self._post(path, data=form_payload)
+                body = _parse_json_response(res)
                 if body.get("success"):
                     return True
             except Exception:

@@ -208,21 +208,18 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     login_ok = await xui.login()
                     logger.info(f"Renewal: XUI login = {login_ok}")
                     
-                    res = await xui.session.post(f"{xui.url}/xui/inbound/list")
-                    body = res.json()
                     found_email = None
                     found_inbound_id = None
-                    
-                    if body.get('success'):
-                        for inb in body.get('obj', []):
-                            settings_data = jsonmod.loads(inb['settings']) if isinstance(inb['settings'], str) else inb['settings']
-                            for cl in settings_data.get('clients', []):
-                                if cl.get('id') == client_uuid:
-                                    found_email = cl['email']
-                                    found_inbound_id = inb['id']
-                                    break
-                            if found_email:
+                    inbounds = await xui.list_inbounds()
+                    for inb in inbounds:
+                        settings_data = jsonmod.loads(inb['settings']) if isinstance(inb.get('settings'), str) else (inb.get('settings') or {})
+                        for cl in settings_data.get('clients', []):
+                            if cl.get('id') == client_uuid:
+                                found_email = cl['email']
+                                found_inbound_id = inb['id']
                                 break
+                        if found_email:
+                            break
                     
                     logger.info(f"Renewal: found_email={found_email}, found_inbound={found_inbound_id}")
                     
