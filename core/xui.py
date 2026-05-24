@@ -9,6 +9,8 @@ from urllib.parse import urlparse, urljoin, quote
 
 logger = logging.getLogger(__name__)
 
+__version__ = "2.1.0-panel-inbound"
+
 API_LEGACY = "legacy"          # /xui/inbound/*
 API_3XUI_PANEL = "3xui_panel"  # /panel/inbound/*  (common on reverse-proxied 3x-ui)
 API_3XUI = "3xui"              # /panel/api/inbounds/* or /panel/api/clients/*
@@ -79,11 +81,19 @@ class XUIApi:
             path = "/" + path
         return f"{self.url}{path}"
 
+    def _resolve_redirect(self, current_url: str, location: str) -> str:
+        if not location:
+            return current_url
+        if location.startswith("http://") or location.startswith("https://"):
+            return location
+        parsed = urlparse(current_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        if location.startswith("/"):
+            return base + location
+        return urljoin(current_url.rstrip("/") + "/", location)
+
     async def _post(self, path: str, max_redirects: int = 3, **kwargs) -> httpx.Response:
-        """
-        POST without auto-follow (301 turns POST into GET in many clients).
-        Manually re-POST to Location, preserving body.
-        """
+        """POST with manual redirect — keeps method and body (fixes 301 → empty JSON)."""
         url = self._abs_url(path)
         res = await self.session.post(url, **kwargs)
         redirects = 0
@@ -91,7 +101,8 @@ class XUIApi:
             loc = res.headers.get("location")
             if not loc:
                 break
-            url = urljoin(url, loc)
+            url = self._resolve_redirect(url, loc)
+            logger.debug(f"POST redirect -> {url}")
             res = await self.session.post(url, **kwargs)
             redirects += 1
         return res
@@ -104,7 +115,7 @@ class XUIApi:
             loc = res.headers.get("location")
             if not loc:
                 break
-            url = urljoin(url, loc)
+            url = self._resolve_redirect(url, loc)
             res = await self.session.get(url, **kwargs)
             redirects += 1
         return res
@@ -217,16 +228,20 @@ class XUIApi:
 
         email = _sanitize_email(email)
         inbound = await self.get_inbound(inbound_id)
+        inbounds_list = await self.list_inbounds()
         if not inbound:
-            ids = [i.get("id") for i in await self.list_inbounds()]
-            self._last_error = f"inbound {inbound_id} not found. Available: {ids}"
-            logger.error(self._last_error)
-            return None
+            ids = [i.get("id") for i in inbounds_list]
+            if ids and int(inbound_id) not in [int(i) for i in ids if i is not None]:
+                self._last_error = f"inbound {inbound_id} not found. Available: {ids}"
+                logger.error(self._last_error)
+                return None
+            logger.warning(f"inbound {inbound_id} not in list (available {ids}), trying addClient anyway")
+            inbound = inbounds_list[0] if inbounds_list else {"id": inbound_id, "protocol": "vless"}
 
         client_uuid = str(uuid.uuid4())
         expiry_time = int((time.time() + (expire_days * 86400)) * 1000) if expire_days > 0 else 0
         total_bytes = int(total_gb * 1073741824) if total_gb > 0 else 0
-        flow = self._inbound_needs_flow(inbound)
+        flow = self._inbound_needs_flow(inbound) if inbound else ""
         sub_id = email
 
         strategies = [
@@ -276,7 +291,7 @@ class XUIApi:
         try:
             res = await self._post("/panel/inbound/addClient", data=payload)
             body = _parse_json_response(res)
-            if res.status_code == 200 and body.get("success"):
+            if res.status_code == 200 and (body.get("success") or (not (res.text or "").strip())):
                 self.api_mode = API_3XUI_PANEL
                 logger.info(f"X-UI client created (/panel/inbound/addClient): {email}")
                 return client_uuid

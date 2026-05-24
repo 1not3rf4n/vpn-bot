@@ -24,6 +24,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def post_init(application):
+    from core.xui import __version__ as xui_ver
+    logger.info(f"XUI client module version: {xui_ver}")
     logger.info("Initializing database...")
     await init_db()
     logger.info("Ensuring default settings exists...")
