@@ -15,11 +15,16 @@ from core.v2ray_delivery import (
 
 logger = logging.getLogger(__name__)
 
-async def provision_order_and_notify(order_id: int, bot):
+async def provision_order_and_notify(order_id: int, bot, custom_server_name: str = None):
     """
     Called when an order enters PAID status.
     It creates the Service (hitting X-UI if V2RAY),
     saves it to DB, and sends the user an order confirmation DM.
+    
+    Args:
+        order_id: The order ID to provision
+        bot: Telegram bot instance
+        custom_server_name: Optional custom server name for V2RAY services
     """
     async with AsyncSessionLocal() as session:
         order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
@@ -68,7 +73,21 @@ async def provision_order_and_notify(order_id: int, bot):
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
             if panel_db:
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
-                email, remark, server_serial = await allocate_v2ray_server_names()
+                
+                # Use custom server name or generate random
+                if custom_server_name:
+                    email = f"{custom_server_name}"
+                    remark = f"@{custom_server_name}"
+                    server_serial = 0  # Custom names don't use sequential numbering
+                    # Still increment serial counter for consistency
+                    from core.settings import set_setting, get_setting
+                    try:
+                        serial = int(await get_setting("v2ray_server_serial", "0") or "0") + 1
+                        await set_setting("v2ray_server_serial", str(serial))
+                    except ValueError:
+                        await set_setting("v2ray_server_serial", "1")
+                else:
+                    email, remark, server_serial = await allocate_v2ray_server_names()
                 client_email = email
 
                 total_gb = product.volume_gb or 0

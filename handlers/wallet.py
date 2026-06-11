@@ -1,9 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from sqlalchemy.future import select
-from database.models import AsyncSessionLocal, User, Receipt
+from database.models import AsyncSessionLocal, User, Receipt, Product
 import core.settings as settings
 import core.config as config
+import logging
+
+logger = logging.getLogger(__name__)
 
 CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="wallet_cancel")]]
 
@@ -258,10 +261,33 @@ async def verify_receipt_callback(update: Update, context: ContextTypes.DEFAULT_
                 order = (await session.execute(select(Order).where(Order.id == receipt.reference_id))).scalars().first()
                 if order:
                     order.status = "PAID"
-                    await session.commit()
                     
-                    await query.edit_message_caption("✅ رسید تایید شد و پروسه تحویل اکانت آغاز گردید.", reply_markup=keys)
-                    await provision_order_and_notify(order.id, context.bot)
+                    # Check if custom server name is enabled and product is V2RAY
+                    prod = (await session.execute(select(Product).where(Product.id == order.product_id))).scalars().first()
+                    custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
+                    
+                    if custom_name_enabled and prod and prod.product_type == 'V2RAY':
+                         # Trigger inline callback flow for user to choose server name
+                         try:
+                             # Include order_id in callback
+                             await context.bot.send_message(
+                                 user_db.telegram_id,
+                                 "🌐 <b>فیش تایید شد!</b>\n\n"
+                                 "برای سرویس V2RAY خریداری شده، اسم سرور را انتخاب کنید:",
+                                 reply_markup=InlineKeyboardMarkup([
+                                     [InlineKeyboardButton("🎲 اسم رندوم سیستم", callback_data=f"srvname_random_{order.id}")],
+                                     [InlineKeyboardButton("✏️ اسم دلخواه", callback_data=f"srvname_custom_{order.id}")]]),
+                                 parse_mode="HTML"
+                             )
+                             await query.edit_message_caption("✅ رسید تایید شد. کاربر برای انتخاب اسم سرور، پیامی دریافت کرد.", reply_markup=keys)
+                         except Exception as e:
+                             logger.error(f"Failed to ask server name: {e}")
+                             await session.commit()
+                             await provision_order_and_notify(order.id, context.bot)
+                    else:
+                        await session.commit()
+                        await query.edit_message_caption("✅ رسید تایید شد و پروسه تحویل اکانت آغاز گردید.", reply_markup=keys)
+                        await provision_order_and_notify(order.id, context.bot)
             
             await session.commit()
         elif action == "reject":

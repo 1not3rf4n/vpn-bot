@@ -31,6 +31,9 @@ async def ensure_defaults():
         "menu_free_config": "on",
         "menu_renew": "on",
 
+        # Custom server name feature (on/off)
+        "custom_server_name_enabled": "on",
+
         # Payment methods toggles (on/off)
         "card_enabled": "on",
         "crypto_enabled": "off",

@@ -254,12 +254,14 @@ async def admin_global_toggles(update: Update, context: ContextTypes.DEFAULT_TYP
     wallet = await get_setting("menu_wallet", "on")
     free = await get_setting("menu_free_config", "on")
     renew = await get_setting("menu_renew", "on")
+    custom_name = await get_setting("custom_server_name_enabled", "on")
     
     keys = [
         [InlineKeyboardButton(f"فروشگاه: {'روشن✅' if shop == 'on' else 'خاموش❌'}", callback_data="toggle_menu_shop")],
         [InlineKeyboardButton(f"کیف پول: {'روشن✅' if wallet == 'on' else 'خاموش❌'}", callback_data="toggle_menu_wallet")],
         [InlineKeyboardButton(f"کانفیگ رایگان: {'روشن✅' if free == 'on' else 'خاموش❌'}", callback_data="toggle_menu_free_config")],
         [InlineKeyboardButton(f"تمدید سرویس‌ها: {'روشن✅' if renew == 'on' else 'خاموش❌'}", callback_data="toggle_menu_renew")],
+        [InlineKeyboardButton(f"استفاده از اسم سرور دلخواه: {'روشن✅' if custom_name == 'on' else 'خاموش❌'}", callback_data="toggle_custom_server_name")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_settings_menu")]
     ]
     try:
@@ -272,6 +274,8 @@ async def handle_toggle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     target = query.data.replace("toggle_menu_", "menu_")
+    if query.data == "toggle_custom_server_name":
+        target = "custom_server_name_enabled"
     cur = await get_setting(target, "on")
     new_v = "off" if cur == "on" else "on"
     await set_setting(target, new_v)
@@ -281,5 +285,5 @@ def get_settings_routers():
     return [
         CallbackQueryHandler(settings_panel, pattern="^admin_settings_menu$"),
         CallbackQueryHandler(admin_global_toggles, pattern="^admin_global_toggles$"),
-        CallbackQueryHandler(handle_toggle_menu, pattern="^toggle_menu_")
+        CallbackQueryHandler(handle_toggle_menu, pattern="^toggle_menu_|^toggle_custom_server_name$")
     ]

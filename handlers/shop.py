@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-(WAIT_SHOP_ACTION, WAIT_COUPON, WAIT_SHOP_METHOD, WAIT_SHOP_RECEIPT) = range(80, 84)
+(WAIT_SHOP_ACTION, WAIT_COUPON, WAIT_SHOP_METHOD, WAIT_SHOP_RECEIPT, WAIT_SERVER_NAME) = range(80, 85)
 CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="shop_cancel")]]
 
 async def shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id=None):
@@ -310,13 +310,19 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         try:
                             await context.bot.send_message(inviter.telegram_id, f"🎉 زیرمجموعه شما خریدی انجام داد و مبلغ {reward} تومان به عنوان کمیسیون به کیف پول شما اضافه شد!")
                         except: pass
-            # -----------------------
+# -----------------------
             await session.commit()
             
             keys = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به صفحه اصلی", callback_data="start_menu")]])
             await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
             
-            await provision_order_and_notify(order.id, context.bot)
+            # Check if custom server name is enabled for this product
+            custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
+            if custom_name_enabled and product.product_type == 'V2RAY':
+                context.user_data['provision_order_id'] = order.id
+                await ask_server_name(update, context)
+            else:
+                await provision_order_and_notify(order.id, context.bot)
 
         elif query.data == "shop_pay_tetra98":
             tetra_enabled = await settings.get_setting("tetra98_enabled", "off")
@@ -472,6 +478,107 @@ async def shop_receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.pop(k, None)
     return ConversationHandler.END
 
+async def ask_server_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask user to choose server name or use random."""
+    query = update.callback_query
+    await query.answer()
+    
+    keys = [
+        [InlineKeyboardButton("🎲 استفاده از اسم رندوم سیستم", callback_data="server_name_random")],
+        [InlineKeyboardButton("✏️ انتخاب اسم دلخواه", callback_data="server_name_custom")]
+    ]
+    await query.edit_message_text(
+        "🌐 <b>انتخاب اسم سرور</b>\n\n"
+        "لطفاً یکی را انتخاب کنید:\n\n"
+        "🎲 <b>رندوم</b>: سیستم به صورت خودکار یک اسم برای سرور شما انتخاب می‌کند.\n"
+        "✏️ <b>دلخواه</b>: شما می‌توانید اسم دلخواه خود را وارد کنید (مثلاً myname-vpn).",
+        reply_markup=InlineKeyboardMarkup(keys),
+        parse_mode="HTML"
+    )
+
+async def handle_server_name_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "server_name_random":
+        order_id = context.user_data.get('provision_order_id')
+        if order_id:
+            from core.provision import provision_order_and_notify
+            await provision_order_and_notify(order_id, context.bot)
+        context.user_data.pop('provision_order_id', None)
+        context.user_data.pop('custom_server_name', None)
+        
+    elif query.data.startswith("server_name_custom"):
+        # Could be with or without order_id
+        parts = query.data.split("_")
+        if len(parts) > 3:
+            # srvname_custom_{order_id} format
+            order_id = int(parts[-1])
+            context.user_data['provision_order_id'] = order_id
+        elif len(parts) == 3:
+            # server_name_custom format (from wallet payment)
+            pass
+        await query.edit_message_text(
+            "✏️ لطفاً اسم دلخواه سرور خود را وارد کنید:\n\n"
+            "(فقط حروف انگلیسی، اعداد و کاراکترهای - و _ مجازند)\n"
+            "مثال: myvpn-server یا uk-london",
+            reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+        )
+        return WAIT_SERVER_NAME
+    
+    elif query.data.startswith("srvname_random_"):
+        order_id = int(query.data.split("_")[-1])
+        if order_id:
+            from core.provision import provision_order_and_notify
+            await provision_order_and_notify(order_id, context.bot)
+        await query.edit_message_text("✅ سرویس با اسم رندوم در حال ساخت است...")
+        
+    elif query.data.startswith("srvname_custom_"):
+        order_id = int(query.data.split("_")[-1])
+        context.user_data['provision_order_id'] = order_id
+        context.user_data['waiting_custom_name'] = True
+        await query.edit_message_text(
+            "✏️ لطفاً اسم دلخواه سرور خود را وارد کنید:\n\n"
+            "(فقط حروف انگلیسی، اعداد و کاراکترهای - و _ مجازند)\n"
+            "مثال: myvpn-server یا uk-london\n\n"
+            "⚠️ <b>مهم</b>: پیام خود را به صورت متنی ارسال کنید.",
+            reply_markup=InlineKeyboardMarkup(CANCEL_BTN),
+            parse_mode="HTML"
+        )
+        return WAIT_SERVER_NAME
+
+async def save_custom_server_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import re
+    name = update.message.text.strip()
+    
+    # Validate: only alphanumeric, dash and underscore
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        await update.message.reply_text(
+            "❌ فقط حروف انگلیسی، اعداد و کاراکترهای - و _ مجازند!\n"
+            "مثال: myvpn-server یا uk_london",
+            reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+        )
+        return WAIT_SERVER_NAME
+    
+    # Limit length
+    if len(name) > 32:
+        await update.message.reply_text(
+            "❌ طول اسم نباید بیش از 32 کاراکتر باشد!",
+            reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+        )
+        return WAIT_SERVER_NAME
+    
+    context.user_data['custom_server_name'] = name
+    order_id = context.user_data.get('provision_order_id')
+    
+    if order_id:
+        from core.provision import provision_order_and_notify
+        await provision_order_and_notify(order_id, context.bot, custom_server_name=name)
+    
+    context.user_data.pop('provision_order_id', None)
+    return ConversationHandler.END
+
+
 async def cancel_chk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     p_id = context.user_data.get('checkout_prod_id')
@@ -480,6 +587,9 @@ async def cancel_chk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with AsyncSessionLocal() as session:
             product = (await session.execute(select(Product).where(Product.id == p_id))).scalars().first()
             cat_id = product.category_id if product else 0
+    # Clean up server name data
+    context.user_data.pop('provision_order_id', None)
+    context.user_data.pop('custom_server_name', None)
     await shop_nav(update, context, cat_id if cat_id > 0 else None)
     return ConversationHandler.END
 
@@ -487,6 +597,7 @@ def get_shop_handlers():
     return [
         CallbackQueryHandler(tetra_verify_payment, pattern="^tetra_verify_"),
         CallbackQueryHandler(shop_router, pattern="^(shop_categories|usr_cat_)"),
+        CallbackQueryHandler(handle_server_name_choice, pattern="^server_name_|^srvname_"),
         ConversationHandler(
             entry_points=[CallbackQueryHandler(checkout_start, pattern="^buyprod_")],
             states={
@@ -499,10 +610,11 @@ def get_shop_handlers():
                     CallbackQueryHandler(cancel_coupon_handler, pattern="^shop_cancel_coupon$")
                 ],
                 WAIT_SHOP_METHOD: [CallbackQueryHandler(shop_handle_method, pattern="^shop_pay_")],
-                WAIT_SHOP_RECEIPT: [MessageHandler(filters.PHOTO, shop_receive_receipt)]
+                WAIT_SHOP_RECEIPT: [MessageHandler(filters.PHOTO, shop_receive_receipt)],
+                WAIT_SERVER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_custom_server_name)]
             },
             fallbacks=[
-                CallbackQueryHandler(cancel_chk, pattern="^usr_cat_|shop_cancel"),
+                CallbackQueryHandler(cancel_chk, pattern="^usr_cat_|shop_cancel|server_name_|^srvname_"),
                 CommandHandler("cancel", cancel_chk)
             ],
             allow_reentry=True
