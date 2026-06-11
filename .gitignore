@@ -33,3 +33,7 @@ task.md
 walkthrough.md
 نیاز ها.txt
 DEPLOY.md
+
+# Backups
+*.tar.gz
+erfan-bot.tar.gz

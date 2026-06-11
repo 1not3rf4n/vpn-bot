@@ -69,6 +69,7 @@ class XUIApi:
         self.api_mode = None
         self.server_ip = urlparse(self.url).hostname
         self._last_error = ""
+        self.csrf_token = None
 
     @property
     def last_error(self) -> str:
@@ -92,8 +93,22 @@ class XUIApi:
             return base + location
         return urljoin(current_url.rstrip("/") + "/", location)
 
+    async def _get_csrf_token(self) -> str | None:
+        try:
+            res = await self.session.get(self._abs_url("/csrf-token"), headers={"X-Requested-With": "XMLHttpRequest"})
+            body = _parse_json_response(res)
+            if res.status_code == 200 and body.get("success"):
+                self.csrf_token = body.get("obj")
+                return self.csrf_token
+        except Exception as e:
+            logger.debug(f"Failed to fetch CSRF token: {e}")
+        return None
+
     async def _post(self, path: str, max_redirects: int = 3, **kwargs) -> httpx.Response:
         """POST with manual redirect — keeps method and body (fixes 301 → empty JSON)."""
+        if self.csrf_token:
+            headers = kwargs.setdefault("headers", {})
+            headers["X-CSRF-Token"] = self.csrf_token
         url = self._abs_url(path)
         res = await self.session.post(url, **kwargs)
         redirects = 0
@@ -122,10 +137,12 @@ class XUIApi:
 
     async def login(self):
         try:
+            await self._get_csrf_token()
             res = await self._post("/login", data={"username": self.username, "password": self.password})
             body = _parse_json_response(res)
             if res.status_code == 200 and body.get("success"):
                 self.logged_in = True
+                await self._get_csrf_token()
                 await self._detect_api_mode()
                 logger.info(f"X-UI login OK mode={self.api_mode} base={self.url}")
                 return True
@@ -139,23 +156,24 @@ class XUIApi:
 
     async def _detect_api_mode(self):
         probes = [
-            (API_3XUI_PANEL, "/panel/inbound/list"),
-            (API_3XUI, "/panel/api/inbounds/list"),
-            (API_LEGACY, "/xui/inbound/list"),
+            (API_3XUI_PANEL, "/panel/inbound/list", "POST"),
+            (API_3XUI, "/panel/api/inbounds/list", "GET"),
+            (API_3XUI, "/panel/api/inbounds/list", "POST"),
+            (API_LEGACY, "/xui/inbound/list", "POST"),
         ]
-        for mode, path in probes:
+        for mode, path, method in probes:
             try:
-                res = await self._post(path)
+                res = await self._get(path) if method == "GET" else await self._post(path)
                 body = _parse_json_response(res)
                 if res.status_code == 200 and body.get("success"):
                     self.api_mode = mode
-                    logger.info(f"X-UI API mode detected: {mode} via {path}")
+                    logger.info(f"X-UI API mode detected: {mode} via {path} ({method})")
                     return
                 if res.status_code == 200 and isinstance(body.get("obj"), list):
                     self.api_mode = mode
                     return
             except Exception as e:
-                logger.debug(f"probe {path}: {e}")
+                logger.debug(f"probe {path} ({method}): {e}")
         self.api_mode = API_3XUI_PANEL
 
     async def list_inbounds(self) -> list:
@@ -163,18 +181,16 @@ class XUIApi:
             return []
 
         paths_by_mode = {
-            API_3XUI_PANEL: ["/panel/inbound/list"],
-            API_3XUI: ["/panel/api/inbounds/list"],
-            API_LEGACY: ["/xui/inbound/list"],
+            API_3XUI_PANEL: [("/panel/inbound/list", "POST")],
+            API_3XUI: [("/panel/api/inbounds/list", "GET"), ("/panel/api/inbounds/list", "POST")],
+            API_LEGACY: [("/xui/inbound/list", "POST")],
         }
         paths = paths_by_mode.get(self.api_mode, [])
         paths += [p for m, ps in paths_by_mode.items() for p in ps if p not in paths]
 
-        for path in paths:
+        for path, method in paths:
             try:
-                res = await self._post(path) if "inbound" in path else await self._get(path)
-                if res.status_code != 200 and "api/inbounds" in path:
-                    res = await self._post(path)
+                res = await self._get(path) if method == "GET" else await self._post(path)
                 body = _parse_json_response(res)
                 if body.get("success"):
                     obj = body.get("obj") or body.get("data") or []
@@ -187,7 +203,7 @@ class XUIApi:
                             self.api_mode = API_LEGACY
                         return obj
             except Exception as e:
-                logger.debug(f"list_inbounds {path}: {e}")
+                logger.debug(f"list_inbounds {path} ({method}): {e}")
         return []
 
     async def get_inbound(self, inbound_id: int):

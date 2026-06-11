@@ -212,11 +212,21 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     found_inbound_id = None
                     inbounds = await xui.list_inbounds()
                     for inb in inbounds:
+                        # Check clientStats (new style)
+                        for cs in inb.get('clientStats', []):
+                            cs_id = cs.get('uuid') or cs.get('id')
+                            if cs_id == client_uuid:
+                                found_email = cs.get('email')
+                                found_inbound_id = inb.get('id')
+                                break
+                        if found_email:
+                            break
+                        # Check settings (old style fallback)
                         settings_data = jsonmod.loads(inb['settings']) if isinstance(inb.get('settings'), str) else (inb.get('settings') or {})
                         for cl in settings_data.get('clients', []):
                             if cl.get('id') == client_uuid:
-                                found_email = cl['email']
-                                found_inbound_id = inb['id']
+                                found_email = cl.get('email')
+                                found_inbound_id = inb.get('id')
                                 break
                         if found_email:
                             break
