@@ -311,18 +311,18 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
                             await context.bot.send_message(inviter.telegram_id, f"🎉 زیرمجموعه شما خریدی انجام داد و مبلغ {reward} تومان به عنوان کمیسیون به کیف پول شما اضافه شد!")
                         except: pass
 # -----------------------
-            await session.commit()
-            
-            keys = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به صفحه اصلی", callback_data="start_menu")]])
-            await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
-            
-            # Check if custom server name is enabled for this product
-            custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
-            if custom_name_enabled and product.product_type == 'V2RAY':
-                context.user_data['provision_order_id'] = order.id
-                await ask_server_name(update, context)
-            else:
-                await provision_order_and_notify(order.id, context.bot)
+                    await session.commit()
+                    
+                    keys = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به صفحه اصلی", callback_data="start_menu")]])
+                    await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
+                    
+                    # Check if custom server name is enabled for this product
+                    custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
+                    if custom_name_enabled and product.product_type == 'V2RAY':
+                        context.user_data['provision_order_id'] = order.id
+                        await ask_server_name(update, context)
+                    else:
+                        await provision_order_and_notify(order.id, context.bot)
 
         elif query.data == "shop_pay_tetra98":
             tetra_enabled = await settings.get_setting("tetra98_enabled", "off")

@@ -1,9 +1,10 @@
 import logging
+import random
 from sqlalchemy.future import select
 from datetime import datetime, timedelta
 from database.models import AsyncSessionLocal, User, Product, Service, Order, XUIPanel, Category
 from core.xui import XUIApi
-from core.settings import get_setting
+from core.settings import get_setting, set_setting
 from core.config import ADMIN_IDS
 from core.v2ray_delivery import (
     allocate_v2ray_server_names,
@@ -71,7 +72,9 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         
         if product.product_type == 'V2RAY':
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+            
             if panel_db:
+                logger.info(f"XUI panel found: url={panel_db.url}, username={panel_db.username}")
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                 
                 # Use custom server name or generate random
@@ -79,8 +82,24 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     email = f"{custom_server_name}"
                     remark = f"@{custom_server_name}"
                     server_serial = 0  # Custom names don't use sequential numbering
+                    
+                    # Check if name already exists on panel, add random suffix if needed
+                    try:
+                        await client._get_csrf_token()
+                        # Try to login to check if client exists
+                        if await client.login():
+                            # Try to check if email already exists
+                            test_links = await client.get_client_links(email)
+                            if test_links:
+                                # Name exists, add random 4-digit suffix
+                                suffix = random.randint(1000, 9999)
+                                email = f"{custom_server_name}-{suffix}"
+                                remark = f"@{custom_server_name}-{suffix}"
+                                logger.info(f"Custom name {custom_server_name} exists, using {email} instead")
+                    except Exception as e:
+                        logger.debug(f"Could not check duplicate name: {e}")
+                    
                     # Still increment serial counter for consistency
-                    from core.settings import set_setting, get_setting
                     try:
                         serial = int(await get_setting("v2ray_server_serial", "0") or "0") + 1
                         await set_setting("v2ray_server_serial", str(serial))
@@ -136,7 +155,7 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                 await client.close()
             else:
                 delivery_note = "❌ ادمین هنوز سرور متصل X-UI را به ربات معرفی نکرده است. لطفا به پشتیبانی پیام دهید."
-                
+                 
         if config_link:
             svc.config_link = build_service_config_link(
                 config_link,
