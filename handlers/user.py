@@ -338,7 +338,7 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
 
         # Modern styled start text
         start_text = await settings.get_setting("start_message", "به ربات خوش آمدید.")
-        composed_caption = f"<b>{start_text}</b>\n</i>"
+        composed_caption = f"<b>{start_text}</b>"
         
         shop_en = await settings.get_setting("menu_shop", "on")
         wallet_en = await settings.get_setting("menu_wallet", "on")
@@ -522,6 +522,37 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg or not msg.text: return
     text = msg.text
+    user_id = update.effective_user.id
+
+    # Handle service action buttons first (e.g., "🔗 ساب #1", "🎯 کانفیگ #1", "🔁 تمدید #1")
+    if text.startswith("🔗 ساب #") or text.startswith("🎯 کانفیگ #") or text.startswith("🔁 تمدید #"):
+        try:
+            svc_idx = int(text.split("#")[1])
+            async with AsyncSessionLocal() as session:
+                user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
+                services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
+
+                if svc_idx <= 0 or svc_idx > len(services):
+                    await update.message.reply_text("❌ سرویس نامعتبر")
+                    return
+
+                service = services[svc_idx - 1]
+
+                if text.startswith("🔗 ساب"):
+                    await handle_v2ray_delivery_action(update, context, service, "sub")
+                elif text.startswith("🎯 کانفیگ"):
+                    await handle_v2ray_delivery_action(update, context, service, "cfg")
+                elif text.startswith("🔁 تمدید"):
+                    await update.message.reply_text("🔁 قابلیت تمدید در حال توسعه")
+        except Exception as e:
+            logger.error(f"Error parsing service button: {e}")
+            await update.message.reply_text("❌ خطای پردازش")
+        return
+
+    if text == "🔙 بازگشت":
+        await send_start_menu(update.message, update.effective_user, update, context)
+        return
+
     if text == "🛒 فروشگاه":
         shop_en = await settings.get_setting("menu_shop", "on")
         if shop_en != "on":
@@ -581,37 +612,11 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "سرویس‌ها" in text:
         user_id = update.effective_user.id
 
-        # Parse service action buttons (e.g., "🔗 ساب #1", "🎯 کانفیگ #1", "🔁 تمدید #1")
-        if text.startswith("🔗 ساب #") or text.startswith("🎯 کانفیگ #") or text.startswith("🔁 تمدید #"):
-            try:
-                svc_idx = int(text.split("#")[1])
-                async with AsyncSessionLocal() as session:
-                    user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
-                    services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
-
-                    if svc_idx <= 0 or svc_idx > len(services):
-                        await update.message.reply_text("❌ سرویس نامعتبر")
-                        return
-
-                    service = services[svc_idx - 1]
-
-                    if text.startswith("🔗 ساب"):
-                        await handle_v2ray_delivery_action(update, context, service, "sub")
-                    elif text.startswith("🎯 کانفیگ"):
-                        await handle_v2ray_delivery_action(update, context, service, "cfg")
-                    elif text.startswith("🔁 تمدید"):
-                        # Renew action - to be handled elsewhere
-                        await update.message.reply_text("🔁 قابلیت تمدید در حال توسعه")
-            except Exception as e:
-                logger.error(f"Error parsing service button: {e}")
-                await update.message.reply_text("❌ خطای پردازش")
-            return
-
         if text == "🔙 بازگشت":
             await send_start_menu(update.message, update.effective_user, update, context)
             return
 
-        # Original services display
+        # Display services
         async with AsyncSessionLocal() as session:
             from database.models import Order
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
