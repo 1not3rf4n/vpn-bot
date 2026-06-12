@@ -204,7 +204,11 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
                 
         is_admin = db_user.is_admin or (user_tg.id in config.ADMIN_IDS)
 
+        # Modern styled start text
         start_text = await settings.get_setting("start_message", "به ربات خوش آمدید.")
+        start_title = "🌐 خوش‌آمدگویی به پنل خدمات VPN"
+        start_hint = "با طراحی شیک و دسترسی ساده؛ سرویس‌ها، کیف‌پول و پشتیبانی در دسترس شماست."
+        composed_caption = f"<b>{start_title}</b>\n\n{escape(start_text)}\n\n<i>{start_hint}</i>"
         
         shop_en = await settings.get_setting("menu_shop", "on")
         wallet_en = await settings.get_setting("menu_wallet", "on")
@@ -232,13 +236,29 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
             keyboard.append([KeyboardButton("⚙️ پنل مدیریت")])
             
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+        # Send decorative background image if configured (glass-style header)
+        bg_url = await settings.get_setting("menu_background_url", "")
+        try:
+            if bg_url:
+                # Send photo as header then the keyboard message for compatibility
+                try:
+                    await message.chat.send_photo(photo=bg_url, caption=composed_caption, parse_mode="HTML")
+                except Exception:
+                    # Fallback to simple text if photo fails
+                    await message.chat.send_message(composed_caption, parse_mode="HTML")
+                await message.chat.send_message("برای ادامه از دکمه‌های زیر استفاده کنید:", reply_markup=reply_markup)
+                return
+        except Exception:
+            pass
+
         if is_edit:
             # We can't edit text and attach reply_markup with edit_message_text, so delete and send
             try: await update.callback_query.message.delete()
             except: pass
-            await message.chat.send_message(start_text, reply_markup=reply_markup)
+            await message.chat.send_message(composed_caption, reply_markup=reply_markup, parse_mode="HTML")
         else:
-            await message.reply_text(start_text, reply_markup=reply_markup)
+            await message.reply_text(composed_caption, reply_markup=reply_markup, parse_mode="HTML")
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_id = None
