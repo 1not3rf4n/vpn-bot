@@ -395,17 +395,14 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             keys = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به صفحه اصلی", callback_data="start_menu")]])
             await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
-            
-            # Check if custom server name is enabled for this product
-            custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
-            logger.info(f"Custom name enabled: {custom_name_enabled}, product type: {product.product_type}")
-            if custom_name_enabled and product.product_type == 'V2RAY':
-                context.user_data['provision_order_id'] = order.id
-                logger.info(f"Asking server name for order {order.id}")
-                await ask_server_name(update, context)
-            else:
-                logger.info(f"Calling provision_order_and_notify for order {order.id}")
-                await provision_order_and_notify(order.id, context.bot)
+
+            # Get custom server name from earlier checkout (if user selected it)
+            custom_server_name = context.user_data.get('custom_server_name')
+            logger.info(f"Calling provision_order_and_notify for order {order.id}, custom_name={custom_server_name}")
+            await provision_order_and_notify(order.id, context.bot, custom_server_name=custom_server_name)
+
+            # Clean up custom name from context
+            context.user_data.pop('custom_server_name', None)
             return ConversationHandler.END
 
         elif query.data == "shop_pay_tetra98":
