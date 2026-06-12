@@ -12,15 +12,15 @@ echo "-> 1. Fetching latest changes from git..."
 git pull
 
 # 2. Update dependencies
-echo "-> 2. Skipping requirements update..."
-# if [ -d "venv" ]; then
-#     source venv/bin/activate
-#     pip install --upgrade pip
-#     pip install -r requirements.txt
-# else
-#     echo "⚠️ Warning: venv folder not found. Installing requirements on system Python..."
-#     pip install -r requirements.txt
-# fi
+echo "-> 2. Installing requirements inside venv..."
+if [ -d "venv" ]; then
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+else
+    echo "⚠️ Warning: venv folder not found. Installing requirements on system Python..."
+    pip install -r requirements.txt
+fi
 
 # 3. Run migrations
 echo "-> 3. Running database migrations..."
