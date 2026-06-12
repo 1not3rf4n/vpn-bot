@@ -438,8 +438,17 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
 
             if not services:
                 text = "🌐 <b>سرویس‌های من</b>\n\nشما هیچ سرویس فعالی ندارید!"
-                kb = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
-                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                kb = [[KeyboardButton("🔙 بازگشت")]]
+                try:
+                    await query.message.delete()
+                except:
+                    pass
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=text,
+                    reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True),
+                    parse_mode="HTML"
+                )
                 return
 
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
