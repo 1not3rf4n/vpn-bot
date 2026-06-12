@@ -49,6 +49,8 @@ async def ensure_defaults():
         # V2RAY server naming: @zyphervpnsalle1, @zyphervpnsalle2, ...
         "v2ray_server_prefix": "zyphervpnsalle",
         "v2ray_server_serial": "0",
+        # UI: optional menu background image URL for a glass-style header
+        "menu_background_url": "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1600&q=80",
     }
     for k, v in defaults.items():
         if await get_setting(k) is None:
