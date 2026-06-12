@@ -211,11 +211,27 @@ def format_config_item_text(index: int, total: int, link: str, remark: str = "",
     return "\n".join(lines)
 
 
+MAX_COPY_TEXT = 4096
+
+
 def copy_button_row(text: str, label: str = "📋 کپی لینک") -> list:
-    # Allow copying longer links (Telegram copy text supports large payloads)
     if not text:
         return []
-    return [[InlineKeyboardButton(label, copy_text=CopyTextButton(text=text))]]
+    safe_text = text[:MAX_COPY_TEXT]
+    try:
+        return [[InlineKeyboardButton(label, copy_text=CopyTextButton(text=safe_text))]]
+    except Exception:
+        return []
+
+
+def safe_copy_button(text: str, label: str) -> InlineKeyboardButton | None:
+    if not text:
+        return None
+    safe_text = text[:MAX_COPY_TEXT]
+    try:
+        return InlineKeyboardButton(label, copy_text=CopyTextButton(text=safe_text))
+    except Exception:
+        return None
 
 
 async def send_subscription_delivery(
@@ -268,7 +284,9 @@ async def send_individual_configs_delivery(
     try:
         if len(links) > 1:
             all_text = "\n".join(links)
-            keys = [[InlineKeyboardButton("📋 کپی همه کانفیگ‌ها", copy_text=CopyTextButton(text=all_text))]]
+            btn = safe_copy_button(all_text, "📋 کپی همه کانفیگ‌ها")
+            if btn:
+                keys = [[btn]]
     except Exception:
         keys = []
 
@@ -277,15 +295,15 @@ async def send_individual_configs_delivery(
     for i, link in enumerate(links, 1):
         remark = extract_remark_from_link(link) if link and "#" in link else f"سرور {i}"
         qr = make_qr_bytes(link)
-        # Pass usage_info so each config shows usage/time if available
         caption = format_config_item_text(i, len(links), link, remark, usage_info)
-        keys = copy_button_row(link, f"📋 کپی کانفیگ {i}")
+        btn = safe_copy_button(link, f"📋 کپی کانفیگ {i}")
+        row = [[btn]] if btn else []
         await bot.send_photo(
             chat_id,
             photo=qr,
             caption=caption,
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keys) if keys else None,
+            reply_markup=InlineKeyboardMarkup(row) if row else None,
         )
 
 
