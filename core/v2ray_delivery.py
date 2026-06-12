@@ -255,8 +255,6 @@ async def send_individual_configs_delivery(
         f"📊 تعداد: <b>{len(links)}</b> کانفیگ\n\n"
         f"در پیام‌های بعدی هر کانفیگ با QR ارسال می‌شود ⬇️"
     )
-    if usage_info:
-        intro += f"\n\n{usage_info}"
 
     # Provide a "copy all" quick button when multiple configs exist
     keys = []
