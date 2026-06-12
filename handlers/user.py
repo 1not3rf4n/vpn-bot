@@ -461,7 +461,8 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                 exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
                 status_emoji = "✅" if s.status == "ACTIVE" else "❌"
                 svc_meta = parse_service_meta(s.config_link)
-                p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
+                raw_name = svc_meta.get("remark") or s.panel_username or "سرویس متفرقه"
+                p_name = escape(f"اشتراک {idx}: {raw_name}")
                 email = svc_meta.get("email", "")
 
                 usage_str = ""
@@ -536,24 +537,12 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif text.startswith("🎯 کانفیگ"):
                     await handle_v2ray_delivery_action(update, context, service, "cfg")
                 elif text.startswith("🔁 تمدید"):
-                    # Convert to renewal callback
-                    from handlers.renew import start_renew
-
-                    class _MockQuery:
-                        def __init__(self, svc_id, user):
-                            self.data = f"renew_svc_{svc_id}"
-                            self.from_user = user
-                        async def answer(self, *a, **kw):
-                            pass
-                        async def edit_message_text(self, text, **kw):
-                            await update.message.reply_text(text, **kw)
-
-                    mock_query = _MockQuery(service.id, update.effective_user)
-                    mock_update = type('obj', (object,), {
-                        'callback_query': mock_query,
-                        'effective_user': update.effective_user
-                    })()
-                    await start_renew(mock_update, context)
+                    await update.message.reply_text(
+                        "برای تمدید سرویس، از دکمه زیر استفاده کنید:",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔁 تمدید سرویس", callback_data=f"renew_svc_{service.id}")]
+                        ])
+                    )
         except Exception as e:
             logger.error(f"Error parsing service button: {e}")
             await update.message.reply_text("❌ خطای پردازش")

@@ -27,20 +27,40 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     renew_en = await settings.get_setting("menu_renew", "on")
     if renew_en != "on":
-        await query.edit_message_text("❌ تمدید سرویس‌ها در حال حاضر غیرفعال است.")
+        try:
+            await query.edit_message_text("❌ تمدید سرویس‌ها در حال حاضر غیرفعال است.")
+        except Exception:
+            try:
+                await query.message.reply_text("❌ تمدید سرویس‌ها در حال حاضر غیرفعال است.")
+            except Exception:
+                pass
         return ConversationHandler.END
-    
-    svc_id = int(query.data.split("_")[2])
+
+    try:
+        svc_id = int(query.data.split("_")[2])
+    except Exception:
+        try:
+            await query.edit_message_text("❌ خطا در شناسایی سرویس.")
+        except Exception:
+            pass
+        return ConversationHandler.END
+
     user_id = query.from_user.id
-    
+
     async with AsyncSessionLocal() as session:
         user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
         svc = (await session.execute(select(Service).where(Service.id == svc_id, Service.user_id == user_db.id))).scalars().first()
-        
+
         if not svc:
-            await query.edit_message_text("❌ سرویس یافت نشد.")
+            try:
+                await query.edit_message_text("❌ سرویس یافت نشد.")
+            except Exception:
+                try:
+                    await query.message.reply_text("❌ سرویس یافت نشد.")
+                except Exception:
+                    pass
             return ConversationHandler.END
-        
+
         context.user_data['renew_svc_id'] = svc_id
 
         disc_str = await settings.get_setting("renew_discount_percent", "0")
@@ -49,20 +69,25 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             renew_disc = 0
         renew_disc = max(0, min(90, renew_disc))
-        
-        # Find V2RAY products to offer for renewal
+
         v2_products = (await session.execute(
             select(Product).where(Product.product_type == 'V2RAY', Product.is_active == True)
         )).scalars().all()
-        
+
         if not v2_products:
-            await query.edit_message_text("❌ هیچ پلن تمدیدی در دسترس نیست.")
+            try:
+                await query.edit_message_text("❌ هیچ پلن تمدیدی در دسترس نیست.")
+            except Exception:
+                try:
+                    await query.message.reply_text("❌ هیچ پلن تمدیدی در دسترس نیست.")
+                except Exception:
+                    pass
             return ConversationHandler.END
-        
+
         from html import escape
         exp = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"
         text = f"🔄 <b>تمدید سرویس</b>\n\nسرویس: <code>{escape(svc.panel_username or 'نامشخص')}</code>\nانقضای فعلی: {exp}\n\nیک پلن تمدید انتخاب کنید:\n"
-        
+
         keys = []
         for p in v2_products:
             vol_txt = f"{p.volume_gb}GB" if p.volume_gb > 0 else "نامحدود"
@@ -73,9 +98,19 @@ async def start_renew(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 label = f"📦 {escape(p.name)} | {p.duration_days} روز | {vol_txt} | {p.price:,.0f}T"
             keys.append([InlineKeyboardButton(label, callback_data=f"renew_plan_{p.id}")])
-        
+
         keys.append(CANCEL_BTN[0])
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+        sent = False
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+            sent = True
+        except Exception:
+            pass
+        if not sent:
+            try:
+                await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+            except Exception:
+                pass
         return RENEW_CHOOSE_PLAN
 
 
@@ -83,18 +118,24 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """User selected a renewal plan."""
     query = update.callback_query
     await query.answer()
-    
+
     prod_id = int(query.data.split("_")[2])
     user_id = query.from_user.id
-    
+
     async with AsyncSessionLocal() as session:
         user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
         product = (await session.execute(select(Product).where(Product.id == prod_id))).scalars().first()
-        
+
         if not product or not user_db:
-            await query.edit_message_text("❌ محصول یافت نشد.")
+            try:
+                await query.edit_message_text("❌ محصول یافت نشد.")
+            except Exception:
+                try:
+                    await query.message.reply_text("❌ محصول یافت نشد.")
+                except Exception:
+                    pass
             return ConversationHandler.END
-        
+
         context.user_data['renew_prod_id'] = prod_id
 
         disc_str = await settings.get_setting("renew_discount_percent", "0")
@@ -108,7 +149,7 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if renew_disc > 0 and price and price > 0:
             price = int(price * (100 - renew_disc) / 100)
         context.user_data["renew_final_price"] = price
-        
+
         from html import escape
         vol_txt = f"{product.volume_gb}GB" if product.volume_gb > 0 else "نامحدود"
         text = (
@@ -124,7 +165,7 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"قیمت: {product.price:,.0f} تومان\n\n"
 
         text += f"💰 موجودی فعلی شما: {user_db.wallet_balance:,.0f} تومان\n\n"
-        
+
         if user_db.wallet_balance < price:
             text += "❌ موجودی کیف پول شما کافی نیست. لطفا اول شارژ کنید."
             keys = [
@@ -137,8 +178,18 @@ async def renew_choose_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("✅ بله، تمدید کن", callback_data="renew_confirm")],
                 CANCEL_BTN[0]
             ]
-        
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+
+        sent = False
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+            sent = True
+        except Exception:
+            pass
+        if not sent:
+            try:
+                await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+            except Exception:
+                pass
         return RENEW_CONFIRM
 
 
@@ -146,20 +197,26 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Execute the renewal."""
     query = update.callback_query
     await query.answer()
-    
+
     svc_id = context.user_data.get('renew_svc_id')
     prod_id = context.user_data.get('renew_prod_id')
     user_id = query.from_user.id
-    
+
     async with AsyncSessionLocal() as session:
         user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
         svc = (await session.execute(select(Service).where(Service.id == svc_id))).scalars().first()
         product = (await session.execute(select(Product).where(Product.id == prod_id))).scalars().first()
-        
+
         if not user_db or not svc or not product:
-            await query.edit_message_text("❌ خطا در پردازش.")
+            try:
+                await query.edit_message_text("❌ خطا در پردازش.")
+            except Exception:
+                try:
+                    await query.message.reply_text("❌ خطا در پردازش.")
+                except Exception:
+                    pass
             return ConversationHandler.END
-        
+
         final_price = context.user_data.get("renew_final_price", product.price)
         try:
             final_price = float(final_price)
@@ -167,33 +224,37 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             final_price = product.price
 
         if user_db.wallet_balance < final_price:
-            await query.edit_message_text("❌ موجودی کافی نیست.")
+            try:
+                await query.edit_message_text("❌ موجودی کافی نیست.")
+            except Exception:
+                try:
+                    await query.message.reply_text("❌ موجودی کافی نیست.")
+                except Exception:
+                    pass
             return ConversationHandler.END
-        
+
         # Deduct wallet
         user_db.wallet_balance -= final_price
-        
+
         # Update service expiry
         if svc.expire_date and svc.expire_date > datetime.utcnow():
-            # Add days to existing expiry
             svc.expire_date = svc.expire_date + timedelta(days=product.duration_days)
         else:
-            # Set new expiry from now
             svc.expire_date = datetime.utcnow() + timedelta(days=product.duration_days)
-        
+
         svc.status = "ACTIVE"
-        
+
         # Try to update on X-UI panel
         panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
         xui_result = False
         logger.info(f"Renewal: panel={'found' if panel_db else 'NONE'}, config_link={'yes' if svc.config_link else 'NONE'}")
-        
+
         if panel_db and svc.config_link:
             try:
                 import json as jsonmod
                 config = svc.config_link.split("\n")[0].strip()
                 logger.info(f"Renewal: config first line = {config[:60]}")
-                
+
                 client_uuid = None
                 if config.startswith("vless://"):
                     client_uuid = config.split("vless://")[1].split("@")[0]
@@ -201,19 +262,18 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     import base64
                     decoded = jsonmod.loads(base64.b64decode(config.split("vmess://")[1]).decode())
                     client_uuid = decoded.get('id', '')
-                
+
                 logger.info(f"Renewal: extracted UUID = {client_uuid}")
-                    
+
                 if client_uuid:
                     xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                     login_ok = await xui.login()
                     logger.info(f"Renewal: XUI login = {login_ok}")
-                    
+
                     found_email = None
                     found_inbound_id = None
                     inbounds = await xui.list_inbounds()
                     for inb in inbounds:
-                        # Check clientStats (new style)
                         for cs in inb.get('clientStats', []):
                             cs_id = cs.get('uuid') or cs.get('id')
                             if cs_id == client_uuid:
@@ -222,7 +282,6 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 break
                         if found_email:
                             break
-                        # Check settings (old style fallback)
                         settings_data = jsonmod.loads(inb['settings']) if isinstance(inb.get('settings'), str) else (inb.get('settings') or {})
                         for cl in settings_data.get('clients', []):
                             if cl.get('id') == client_uuid:
@@ -231,9 +290,9 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 break
                         if found_email:
                             break
-                    
+
                     logger.info(f"Renewal: found_email={found_email}, found_inbound={found_inbound_id}")
-                    
+
                     if found_email and found_inbound_id:
                         total_gb = product.volume_gb or 0
                         expire_days = product.duration_days
@@ -269,20 +328,20 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         logger.info(f"Renewal DONE: update={ok_update}, reset={ok_reset}, reset_first={reset_first}{reset_note}")
                     else:
                         logger.error(f"Renewal: client UUID {client_uuid} not found in any inbound")
-                    
+
                     await xui.close()
             except Exception as e:
                 logger.error(f"Renewal X-UI error: {e}", exc_info=True)
-        
+
         await session.commit()
-        
+
         from html import escape
         exp_str = svc.expire_date.strftime("%Y-%m-%d")
         vol_txt = f"{product.volume_gb}GB" if product.volume_gb > 0 else "نامحدود"
-        
+
         result_msg = "✅" if xui_result else "⚠️"
         panel_note = "سرور پنل آپدیت شد." if xui_result else "آپدیت پنل انجام نشد؛ لطفا به پشتیبانی اطلاع دهید."
-        
+
         text = (
             f"🔄 <b>تمدید انجام شد!</b>\n\n"
             f"{result_msg} {panel_note}\n\n"
@@ -291,16 +350,28 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"انقضای جدید: <code>{exp_str}</code>\n"
             f"مبلغ کسر شده: {final_price:,.0f} تومان"
         )
-        
-        await query.edit_message_text(text, parse_mode="HTML")
-    
+
+        try:
+            await query.edit_message_text(text, parse_mode="HTML")
+        except Exception:
+            try:
+                await query.message.reply_text(text, parse_mode="HTML")
+            except Exception:
+                pass
+
     return ConversationHandler.END
 
 
 async def renew_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("❌ عملیات تمدید لغو شد.")
+    try:
+        await query.edit_message_text("❌ عملیات تمدید لغو شد.")
+    except Exception:
+        try:
+            await query.message.reply_text("❌ عملیات تمدید لغو شد.")
+        except Exception:
+            pass
     return ConversationHandler.END
 
 
