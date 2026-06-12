@@ -142,7 +142,7 @@ def get_settings_conv_handler():
             EDIT_UI_COLOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_usd_rate)],
             EDIT_ORDER_TXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_order_msg)],
             EDIT_RENEW_DISC: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_renew_discount)],
-            EDIT_BG_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_bg_url)],
+            EDIT_BG_URL: [MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), save_bg_url)],
             WAIT_XUI_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_xui_url)],
             WAIT_XUI_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_xui_user)],
             WAIT_XUI_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_xui_pass)]
