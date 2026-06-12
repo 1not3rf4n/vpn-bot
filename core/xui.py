@@ -567,11 +567,16 @@ class XUIApi:
     async def update_client(
         self, inbound_id: int, client_uuid: str, email: str,
         total_gb: float = 0, expire_days: int = 30, limit_ip: int = 1,
+        reset_first: bool = False,
     ):
         if not self.logged_in and not await self.login():
             return False
 
         email = _sanitize_email(email)
+
+        if reset_first:
+            await self.reset_client_traffic(inbound_id, email)
+
         expiry_time = int((time.time() + (expire_days * 86400)) * 1000) if expire_days > 0 else 0
         total_bytes = int(total_gb * 1073741824) if total_gb > 0 else 0
 

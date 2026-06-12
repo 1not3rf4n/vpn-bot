@@ -276,7 +276,6 @@ async def send_individual_configs_delivery(
         f"در پیام‌های بعدی هر کانفیگ با QR ارسال می‌شود ⬇️"
     )
 
-    # Provide a "copy all" quick button when multiple configs exist
     keys = []
     try:
         if len(links) > 1:
@@ -287,21 +286,36 @@ async def send_individual_configs_delivery(
     except Exception:
         keys = []
 
-    await bot.send_message(chat_id, intro, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
+    try:
+        await bot.send_message(chat_id, intro, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
+    except Exception as e:
+        logger.error(f"Delivery intro send failed: {e}")
+        await bot.send_message(chat_id, intro, parse_mode="HTML")
 
     for i, link in enumerate(links, 1):
-        remark = extract_remark_from_link(link) if link and "#" in link else f"سرور {i}"
-        qr = make_qr_bytes(link)
-        caption = format_config_item_text(i, len(links), link, remark, usage_info)
-        btn = safe_copy_button(link, f"📋 کپی کانفیگ {i}")
-        row = [[btn]] if btn else []
-        await bot.send_photo(
-            chat_id,
-            photo=qr,
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(row) if row else None,
-        )
+        try:
+            remark = extract_remark_from_link(link) if link and "#" in link else f"سرور {i}"
+            qr = make_qr_bytes(link)
+            caption = format_config_item_text(i, len(links), link, remark, usage_info)
+            btn = safe_copy_button(link, f"📋 کپی کانفیگ {i}")
+            row = [[btn]] if btn else []
+            await bot.send_photo(
+                chat_id,
+                photo=qr,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(row) if row else None,
+            )
+        except Exception as e:
+            logger.error(f"Delivery config {i} failed: {e}")
+            try:
+                await bot.send_message(
+                    chat_id,
+                    f"🔗 <b>کانفیگ {i}:</b>\n<code>{escape(link)}</code>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
 
 def delivery_choice_keyboard(service_id: int) -> InlineKeyboardMarkup:

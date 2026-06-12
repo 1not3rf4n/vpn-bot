@@ -2,6 +2,7 @@
 V2RAY Service Renewal Handler
 Allows users to renew volume + expiry date on their existing V2RAY services.
 """
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 from telegram.ext import (ContextTypes, ConversationHandler, CallbackQueryHandler,
                           MessageHandler, CommandHandler, filters)
@@ -236,15 +237,36 @@ async def renew_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if found_email and found_inbound_id:
                         total_gb = product.volume_gb or 0
                         expire_days = product.duration_days
-                        
+
+                        is_expired = svc.expire_date < datetime.utcnow() if svc.expire_date else True
+
+                        reset_first = False
+                        if is_expired:
+                            reset_first = True
+                        else:
+                            try:
+                                client_stats_list = await xui.get_all_client_stats()
+                                for cs in client_stats_list:
+                                    if cs.get("email") == found_email:
+                                        total = cs.get("total", 0)
+                                        up = cs.get("up", 0)
+                                        down = cs.get("down", 0)
+                                        if total > 0 and (up + down) >= total:
+                                            reset_first = True
+                                        break
+                            except Exception:
+                                pass
+
                         ok_update = await xui.update_client(
                             found_inbound_id, client_uuid, found_email,
-                            total_gb, expire_days
+                            total_gb, expire_days,
+                            reset_first=reset_first,
                         )
                         ok_reset = await xui.reset_client_traffic(found_inbound_id, found_email)
-                        
+
                         xui_result = ok_update
-                        logger.info(f"Renewal DONE: update={ok_update}, reset={ok_reset}")
+                        reset_note = " (ریست ترافیک)" if reset_first else ""
+                        logger.info(f"Renewal DONE: update={ok_update}, reset={ok_reset}, reset_first={reset_first}{reset_note}")
                     else:
                         logger.error(f"Renewal: client UUID {client_uuid} not found in any inbound")
                     
