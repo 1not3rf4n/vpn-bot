@@ -12,7 +12,7 @@ echo "-> 1. Fetching latest changes from git..."
 git pull
 
 # 2. Update dependencies
-# echo "-> 2. Installing requirements inside venv..."
+echo "-> 2. Skipping requirements update..."
 # if [ -d "venv" ]; then
 #     source venv/bin/activate
 #     pip install --upgrade pip
