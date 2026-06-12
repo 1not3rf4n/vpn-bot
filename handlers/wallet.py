@@ -267,23 +267,27 @@ async def verify_receipt_callback(update: Update, context: ContextTypes.DEFAULT_
                     custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
                     
                     if custom_name_enabled and prod and prod.product_type == 'V2RAY':
-                         # Trigger inline callback flow for user to choose server name
-                         try:
-                             # Include order_id in callback
-                             await context.bot.send_message(
-                                 user_db.telegram_id,
-                                 "🌐 <b>فیش تایید شد!</b>\n\n"
-                                 "برای سرویس V2RAY خریداری شده، اسم سرور را انتخاب کنید:",
-                                 reply_markup=InlineKeyboardMarkup([
-                                     [InlineKeyboardButton("🎲 اسم رندوم سیستم", callback_data=f"srvname_random_{order.id}")],
-                                     [InlineKeyboardButton("✏️ اسم دلخواه", callback_data=f"srvname_custom_{order.id}")]]),
-                                 parse_mode="HTML"
-                             )
-                             await query.edit_message_caption("✅ رسید تایید شد. کاربر برای انتخاب اسم سرور، پیامی دریافت کرد.", reply_markup=keys)
-                         except Exception as e:
-                             logger.error(f"Failed to ask server name: {e}")
-                             await session.commit()
-                             await provision_order_and_notify(order.id, context.bot)
+                        existing_name = order.custom_server_name
+                        if existing_name:
+                            await session.commit()
+                            await provision_order_and_notify(order.id, context.bot, custom_server_name=existing_name)
+                            await query.edit_message_caption("✅ رسید تایید شد و سرویس در حال ساخت است.", reply_markup=keys)
+                        else:
+                            try:
+                                await context.bot.send_message(
+                                    user_db.telegram_id,
+                                    "🌐 <b>فیش تایید شد!</b>\n\n"
+                                    "برای سرویس V2RAY خریداری شده، اسم سرور را انتخاب کنید:",
+                                    reply_markup=InlineKeyboardMarkup([
+                                        [InlineKeyboardButton("🎲 اسم رندوم سیستم", callback_data=f"srvname_random_{order.id}")],
+                                        [InlineKeyboardButton("✏️ اسم دلخواه", callback_data=f"srvname_custom_{order.id}")]]),
+                                    parse_mode="HTML"
+                                )
+                                await query.edit_message_caption("✅ رسید تایید شد. کاربر برای انتخاب اسم سرور، پیامی دریافت کرد.", reply_markup=keys)
+                            except Exception as e:
+                                logger.error(f"Failed to ask server name: {e}")
+                                await session.commit()
+                                await provision_order_and_notify(order.id, context.bot)
                     else:
                         await session.commit()
                         await query.edit_message_caption("✅ رسید تایید شد و پروسه تحویل اکانت آغاز گردید.", reply_markup=keys)

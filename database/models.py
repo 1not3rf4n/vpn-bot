@@ -75,15 +75,16 @@ class Order(Base):
     user_id = Column(Integer, ForeignKey('users.id'))
     product_id = Column(Integer, ForeignKey('products.id'))
     amount = Column(Float)
-    payment_method = Column(String(50)) # ZARINPAL, WALLET, CARD, CRYPTO
-    status = Column(String(50), default='PENDING') # PENDING, PAID, CANCELED, REJECTED
-    receipt_photo = Column(String(255), nullable=True) # In case of CARD
+    payment_method = Column(String(50))
+    status = Column(String(50), default='PENDING')
+    receipt_photo = Column(String(255), nullable=True)
     coupon_id = Column(Integer, nullable=True)
     gateway_authority = Column(String(255), nullable=True)
     gateway_tracking_id = Column(String(255), nullable=True)
     gateway_hash_id = Column(String(255), nullable=True)
-    expire_date = Column(DateTime, nullable=True) # For expiration reminders
+    expire_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    custom_server_name = Column(String(100), nullable=True)
 
     user = relationship("User", back_populates="orders")
     

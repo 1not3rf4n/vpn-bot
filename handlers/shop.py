@@ -513,6 +513,7 @@ async def shop_receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             
         # Create Order as PENDING
         order = Order(user_id=user_db.id, product_id=product.id, amount=final_price, payment_method=pay_method, status="PENDING")
+        order.custom_server_name = context.user_data.get('custom_server_name')
         session.add(order)
         await session.flush()
         
@@ -757,8 +758,10 @@ async def tetra_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYP
         await session.commit()
 
     from core.provision import provision_order_and_notify
+    custom_name = context.user_data.get('custom_server_name')
     await query.edit_message_text("✅ پرداخت تایید شد. در حال تحویل سرویس...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 صفحه اصلی", callback_data="start_menu")]]))
-    await provision_order_and_notify(order_id, context.bot)
+    await provision_order_and_notify(order_id, context.bot, custom_server_name=custom_name)
+    context.user_data.pop('custom_server_name', None)
 
     for k in ['checkout_prod_id', 'checkout_final_price', 'checkout_final_price_usd', 'checkout_coupon_id', 'checkout_pay_method']:
         context.user_data.pop(k, None)
