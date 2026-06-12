@@ -236,6 +236,23 @@ class XUIApi:
             pass
         return ""
 
+    def get_client_stats_by_email(self, email: str) -> dict:
+        """Get client stats (traffic used/total) by email from cached inbounds list."""
+        for inb in self._inbounds_cache:
+            for cs in inb.get("clientStats", []):
+                if cs.get("email") == email:
+                    return cs
+        return {}
+
+    async def get_all_client_stats(self) -> list[dict]:
+        """Get all client stats from the panel for usage tracking."""
+        inbounds = await self.list_inbounds()
+        stats = []
+        for ib in inbounds:
+            for cs in ib.get("clientStats", []):
+                stats.append(cs)
+        return stats
+
     async def add_client(
         self, inbound_id: int, email: str, total_gb: float = 0, expire_days: int = 30, limit_ip: int = 1
     ):

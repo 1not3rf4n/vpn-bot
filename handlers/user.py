@@ -1,7 +1,8 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton, InputFile
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
 from database.models import AsyncSessionLocal, User, Category, Product, Service, Order, XUIPanel
+from core.xui import XUIApi
 import core.config as config
 import core.settings as settings
 from core.utils import check_forced_join
@@ -17,8 +18,8 @@ from core.v2ray_delivery import (
     send_individual_configs_delivery,
     send_subscription_delivery,
 )
-from core.xui import XUIApi
 from html import escape
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -80,33 +81,28 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         display_remark = meta.get("remark", "")
 
         if is_sub:
-            if not sub_id:
-                await query.message.reply_text("❌ اطلاعات ساب یافت نشد.")
-                await xui.close()
-                return
-            sub_url = xui.build_subscription_url(sub_id, sub_path)
-            await xui.close()
-            try:
-                await send_subscription_delivery(
-                    context.bot, chat_id,
-                    sub_url=sub_url, sub_code=sub_code, product_name=product_name,
-                )
-            except Exception as e:
-                logger.error(f"Sub delivery failed: {e}")
-                await query.message.reply_text(
-                    f"📡 <b>لینک ساب:</b>\n<code>{sub_url}</code>",
+            if direct:
+                qr = make_qr_bytes(direct)
+                await context.bot.send_photo(
+                    chat_id,
+                    photo=InputFile(qr, filename="qr.png"),
+                    caption=f"🔗 <b>لینک سرور</b>\n\n<code>{direct}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک را کپی کنید",
                     parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(copy_button_row(direct, "📋 کپی لینک")),
                 )
+            else:
+                await query.message.reply_text("❌ لینک سرور یافت نشد.", parse_mode="HTML")
+            await xui.close()
             return
 
         links = []
         if sub_id:
             sub_url = xui.build_subscription_url(sub_id, sub_path)
             links = await fetch_subscription_configs(sub_url)
-        await xui.close()
-
         if not links and direct:
             links = [direct]
+        await xui.close()
+
         if display_remark:
             links = [apply_remark_to_link(l, display_remark) for l in links]
         if not links and svc.config_link:
@@ -239,43 +235,58 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
             result = await session.execute(select(Service).where(Service.user_id == db_user.id).order_by(Service.id.desc()))
             services = result.scalars().all()
             
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
-            text = "🌐 <b>سرویس‌های من</b>\n\n"
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")], [InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")]]
+            
             if not services:
-                text += "شما هیچ سرویس فعالی ندارید!"
+                text = "🌐 <b>سرویس‌های من</b>\n\nشما هیچ سرویس فعالی ندارید!"
             else:
-                renew_en = await settings.get_setting("menu_renew", "on")
-                result = await session.execute(select(Order).where(Order.user_id == db_user.id, Order.status == 'PAID'))
-                orders_map = {o.id: o for o in result.scalars().all()}
-
+                # Fetch panel for usage stats
+                panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+                client_stats = []
+                if panel_db:
+                    xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+                    try:
+                        client_stats = await xui.get_all_client_stats()
+                    except Exception:
+                        pass
+                
+                text = "🌐 <b>سرویس‌های من</b>\n\n"
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
-                    status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
+                    status_emoji = "✅" if s.status == "ACTIVE" else "❌"
                     svc_meta = parse_service_meta(s.config_link)
                     p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
+                    email = svc_meta.get("email", "")
 
-                    price_str = ""
-                    if s.panel_username and "#SUB-" in s.panel_username:
-                        try:
-                            oid = int(s.panel_username.split("-")[1])
-                            if oid in orders_map:
-                                price_str = f" | مبلغ خرید: {orders_map[oid].amount:,.0f}T"
-                        except: pass
+                    # Get usage stats from panel
+                    usage_str = ""
+                    if client_stats and email:
+                        for cs in client_stats:
+                            if cs.get("email") == email:
+                                total = cs.get("total", 0) // (1024**3)  # GB
+                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)  # GB
+                                usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
+                                break
 
-                    text += f"{idx}. سرور: <b>{p_name}</b>\n"
-                    text += f"وضعیت: {status} | انقضا: {exp}{price_str}\n"
+                    # Days remaining calculation
+                    if s.expire_date:
+                        days_left = (s.expire_date - datetime.now()).days
+                        usage_str += f" | ⏳ {max(0, days_left)} روز"
+
+                    text += f"🔹 <b>{p_name}</b>\n"
+                    text += f"{status_emoji} وضعیت: {'فعال' if s.status == 'ACTIVE' else 'غیرفعال'}\n"
+                    text += f"📅 انقضا: {exp}\n"
+                    if usage_str:
+                        text += f"{usage_str}\n"
                     text += "➖➖➖➖➖➖\n"
-
+                    
                     link_part = extract_direct_link(s.config_link)
-                    is_v2 = bool(link_part)
-                    if is_v2 and s.status == "ACTIVE":
-                        keyboard.insert(-1, [
-                            InlineKeyboardButton(f"📡 ساب #{idx}", callback_data=f"v2del_sub_{s.id}"),
-                            InlineKeyboardButton(f"📋 جدا #{idx}", callback_data=f"v2del_cfg_{s.id}"),
-                        ])
-                    if renew_en == "on" and s.status == "ACTIVE" and is_v2:
-                        keyboard.insert(-1, [InlineKeyboardButton(f"🔄 تمدید #{idx}", callback_data=f"renew_svc_{s.id}")])
-            
+                    if link_part:
+                        keyboard.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
+                    # Add sub button if we can build subscription
+                    if s.status == "ACTIVE":
+                        keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
+
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -344,46 +355,56 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from database.models import Order
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
+            
+            # Fetch panel for usage stats
+            panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+            client_stats = []
+            if panel_db:
+                xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+                try:
+                    client_stats = await xui.get_all_client_stats()
+                except Exception:
+                    pass
+            
             msg = "🌐 <b>سرویس‌های من</b>\n\n"
-            keys = []
-            if not services: msg += "شما هیچ سرویس فعالی ندارید!"
+            keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")], [InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")]]
+            
+            if not services:
+                msg += "شما هیچ سرویس فعالی ندارید!"
             else:
-                renew_en = await settings.get_setting("menu_renew", "on")
-                # Pre-fetch all paid orders for this user to avoid N+1 queries
-                result = await session.execute(select(Order).where(Order.user_id == user_db.id, Order.status == 'PAID'))
-                orders_map = {o.id: o for o in result.scalars().all()}
-
                 for idx, s in enumerate(services, 1):
                     exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
-                    status = "✅ فعال" if s.status == "ACTIVE" else "❌ غیرفعال"
+                    status_emoji = "✅" if s.status == "ACTIVE" else "❌"
                     svc_meta = parse_service_meta(s.config_link)
                     p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
+                    email = svc_meta.get("email", "")
 
-                    price_str = ""
-                    if s.panel_username and "#SUB-" in s.panel_username:
-                        try:
-                            oid = int(s.panel_username.split("-")[1])
-                            if oid in orders_map:
-                                price_str = f" | مبلغ خرید: {orders_map[oid].amount:,.0f}T"
-                        except: pass
+                    usage_str = ""
+                    if client_stats and email:
+                        for cs in client_stats:
+                            if cs.get("email") == email:
+                                total = cs.get("total", 0) // (1024**3)  # GB
+                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)  # GB
+                                usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
+                                break
 
-                    msg += f"{idx}. سرور: <b>{p_name}</b>\n"
-                    msg += f"وضعیت: {status} | انقضا: {exp}{price_str}\n"
+                    # Days remaining calculation
+                    if s.expire_date:
+                        days_left_val = max(0, (s.expire_date - datetime.now()).days)
+                        usage_str += f" | ⏳ {days_left_val} روز"
+
+                    msg += f"🔹 <b>{p_name}</b>\n"
+                    msg += f"{status_emoji} وضعیت: {'فعال' if s.status == 'ACTIVE' else 'غیرفعال'}\n"
+                    msg += f"📅 انقضا: {exp}\n"
+                    if usage_str:
+                        msg += f"{usage_str}\n"
                     msg += "➖➖➖➖➖➖\n"
                     
                     link_part = extract_direct_link(s.config_link)
-                    is_v2 = bool(link_part)
-                    if is_v2 and s.status == "ACTIVE":
-                        keys.append([
-                            InlineKeyboardButton(f"📡 دریافت ساب #{idx}", callback_data=f"v2del_sub_{s.id}"),
-                            InlineKeyboardButton(f"📋 کانفیگ جدا #{idx}", callback_data=f"v2del_cfg_{s.id}"),
-                        ])
-                    elif link_part:
-                        if len(link_part) <= 256:
-                            keys.append([InlineKeyboardButton(f"📋 کپی لینک #{idx}", copy_text=CopyTextButton(text=link_part))])
-
-                    if renew_en == "on" and s.status == "ACTIVE" and is_v2:
-                        keys.append([InlineKeyboardButton(f"🔄 تمدید سرویس #{idx}", callback_data=f"renew_svc_{s.id}")])
+                    if link_part:
+                        keys.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
+                    if s.status == "ACTIVE":
+                        keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
             
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
             
