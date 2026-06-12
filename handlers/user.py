@@ -54,16 +54,12 @@ async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEF
         client_email = meta.get("email", "")
 
         if not client_email:
-            pn = svc.panel_username or ""
-            if pn and not pn.startswith("#SUB-"):
-                client_email = pn
-            elif direct and "#" in direct:
-                try:
-                    from urllib.parse import unquote
-                    remark_in_link = unquote(direct.split("#", 1)[1])
-                    client_email = remark_in_link.lstrip("@")
-                except Exception:
-                    pass
+            # Try to get email from remark if available
+            remark = meta.get("remark", "")
+            if remark:
+                # Remove @ prefix if present
+                client_email = remark.lstrip("@")
+            # Don't extract from direct link to avoid getting UUID instead of email
 
         panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
 
@@ -203,21 +199,15 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         direct = extract_direct_link(svc.config_link)
         meta = parse_service_meta(svc.config_link)
         client_email = meta.get("email", "")
-        
-        # If no email in meta, try to extract it from panel_username or the config_link remark
+
+        # If no email in meta, try to extract it from remark only (not from direct link)
         if not client_email:
-            pn = svc.panel_username or ""
-            if pn and not pn.startswith("#SUB-"):
-                client_email = pn
-            elif direct and "#" in direct:
-                # Extract remark from URL fragment - remark format is usually @emailname
-                try:
-                    from urllib.parse import unquote
-                    remark_in_link = unquote(direct.split("#", 1)[1])
-                    # Remove @ prefix if present
-                    client_email = remark_in_link.lstrip("@")
-                except Exception:
-                    pass
+            # Try to get email from remark if available
+            remark = meta.get("remark", "")
+            if remark:
+                # Remove @ prefix if present
+                client_email = remark.lstrip("@")
+            # Don't extract from direct link to avoid getting UUID instead of email
 
         panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
 
