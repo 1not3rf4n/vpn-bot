@@ -204,7 +204,11 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
                 
         is_admin = db_user.is_admin or (user_tg.id in config.ADMIN_IDS)
 
+        # Modern styled start text
         start_text = await settings.get_setting("start_message", "به ربات خوش آمدید.")
+        start_title = "🌐 خوش‌آمدگویی به پنل خدمات VPN"
+        start_hint = "با طراحی شیک و دسترسی ساده؛ سرویس‌ها، کیف‌پول و پشتیبانی در دسترس شماست."
+        composed_caption = f"<b>{start_title}</b>\n\n{escape(start_text)}\n\n<i>{start_hint}</i>"
         
         shop_en = await settings.get_setting("menu_shop", "on")
         wallet_en = await settings.get_setting("menu_wallet", "on")
@@ -232,13 +236,29 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
             keyboard.append([KeyboardButton("⚙️ پنل مدیریت")])
             
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+        # Send decorative background image if configured (glass-style header)
+        bg_url = await settings.get_setting("menu_background_url", "")
+        try:
+            if bg_url:
+                # Send photo as header then the keyboard message for compatibility
+                try:
+                    await message.chat.send_photo(photo=bg_url, caption=composed_caption, parse_mode="HTML")
+                except Exception:
+                    # Fallback to simple text if photo fails
+                    await message.chat.send_message(composed_caption, parse_mode="HTML")
+                await message.chat.send_message("برای ادامه از دکمه‌های زیر استفاده کنید:", reply_markup=reply_markup)
+                return
+        except Exception:
+            pass
+
         if is_edit:
             # We can't edit text and attach reply_markup with edit_message_text, so delete and send
             try: await update.callback_query.message.delete()
             except: pass
-            await message.chat.send_message(start_text, reply_markup=reply_markup)
+            await message.chat.send_message(composed_caption, reply_markup=reply_markup, parse_mode="HTML")
         else:
-            await message.reply_text(start_text, reply_markup=reply_markup)
+            await message.reply_text(composed_caption, reply_markup=reply_markup, parse_mode="HTML")
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_id = None
@@ -321,22 +341,42 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                         days_left = (s.expire_date - datetime.now()).days
                         usage_str += f" | ⏳ {max(0, days_left)} روز"
 
-                    text += f"🔹 <b>{p_name}</b>\n"
-                    text += f"{status_emoji} وضعیت: {'فعال' if s.status == 'ACTIVE' else 'غیرفعال'}\n"
-                    text += f"📅 انقضا: {exp}\n"
-                    if usage_str:
-                        text += f"{usage_str}\n"
-                    text += "➖➖➖➖➖➖\n"
-                    
+                    # Glass-style card header per service
+                    text += f"┏━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+                    text += f"🔹 <b>{p_name}</b>    {status_emoji}\n"
+                    text += f"📅 انقضا: {exp}    {usage_str}\n"
+                    text += f"┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n"
+
                     link_part = extract_direct_link(s.config_link)
-                    # Add inline buttons in a single row for better UX
+
+                    # Try to collect all links for this service (subscription URL or direct link)
+                    links = []
+                    try:
+                        if panel_db and email:
+                            sub_path = await settings.get_setting("xui_sub_path", "/sub/")
+                            try:
+                                sub_url = xui.build_subscription_url(email, sub_path)
+                                links = await fetch_subscription_configs(sub_url)
+                            except Exception:
+                                links = []
+                    except Exception:
+                        links = []
+
+                    if not links and link_part:
+                        links = [link_part]
+
+                    # Build button row: copy all, link server, copy link, sub, configs, usage, renew
                     row = []
+                    if links and len(links) > 1:
+                        all_text = "\n".join(links)
+                        row.append(InlineKeyboardButton("📋 کپی همه", copy_text=CopyTextButton(text=all_text)))
                     if link_part:
-                        row.append(InlineKeyboardButton(f"🔗 سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
-                        row.append(InlineKeyboardButton(f"📋 کپی", copy_text=CopyTextButton(text=link_part)))
+                        row.append(InlineKeyboardButton("🔗 لینک سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
+                        row.append(InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        row.append(InlineKeyboardButton(f"📲 ساب", callback_data=f"v2del_sub_{s.id}"))
-                        row.append(InlineKeyboardButton(f"🎯 کانفیگ", callback_data=f"v2del_cfg_{s.id}"))
+                        row.append(InlineKeyboardButton("🔗 لینک ساب", callback_data=f"v2del_sub_{s.id}"))
+                        row.append(InlineKeyboardButton("🎯 کانفیگ‌ها", callback_data=f"v2del_cfg_{s.id}"))
+                        row.append(InlineKeyboardButton("🔁 تمدید", callback_data=f"renew_{s.id}"))
                     if row:
                         keyboard.append(row)
             
@@ -445,22 +485,41 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         days_left_val = max(0, (s.expire_date - datetime.now()).days)
                         usage_str += f" | ⏳ {days_left_val} روز"
 
-                    msg += f"🔹 <b>{p_name}</b>\n"
-                    msg += f"{status_emoji} وضعیت: {'فعال' if s.status == 'ACTIVE' else 'غیرفعال'}\n"
-                    msg += f"📅 انقضا: {exp}\n"
-                    if usage_str:
-                        msg += f"{usage_str}\n"
-                    msg += "➖➖➖➖➖➖\n"
-                    
+                    # Glass-style card per service
+                    msg += "┏━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+                    msg += f"🔹 <b>{p_name}</b>    {status_emoji}\n"
+                    msg += f"📅 انقضا: {exp}    {usage_str}\n"
+                    msg += "┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n"
+
                     link_part = extract_direct_link(s.config_link)
-                    # Add inline buttons in a single row for better UX
+
+                    # Try to collect links for copy-all
+                    links = []
+                    try:
+                        if panel_db and email:
+                            sub_path = await settings.get_setting("xui_sub_path", "/sub/")
+                            try:
+                                sub_url = xui.build_subscription_url(email, sub_path)
+                                links = await fetch_subscription_configs(sub_url)
+                            except Exception:
+                                links = []
+                    except Exception:
+                        links = []
+
+                    if not links and link_part:
+                        links = [link_part]
+
                     row = []
+                    if links and len(links) > 1:
+                        all_text = "\n".join(links)
+                        row.append(InlineKeyboardButton("📋 کپی همه", copy_text=CopyTextButton(text=all_text)))
                     if link_part:
-                        row.append(InlineKeyboardButton(f"🔗 سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
-                        row.append(InlineKeyboardButton(f"📋 کپی", copy_text=CopyTextButton(text=link_part)))
+                        row.append(InlineKeyboardButton("🔗 لینک سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
+                        row.append(InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        row.append(InlineKeyboardButton(f"📲 ساب", callback_data=f"v2del_sub_{s.id}"))
-                        row.append(InlineKeyboardButton(f"🎯 کانفیگ", callback_data=f"v2del_cfg_{s.id}"))
+                        row.append(InlineKeyboardButton("🔗 لینک ساب", callback_data=f"v2del_sub_{s.id}"))
+                        row.append(InlineKeyboardButton("🎯 کانفیگ‌ها", callback_data=f"v2del_cfg_{s.id}"))
+                        row.append(InlineKeyboardButton("🔁 تمدید", callback_data=f"renew_{s.id}"))
                     if row:
                         keys.append(row)
             

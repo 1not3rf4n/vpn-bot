@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import random
 from sqlalchemy.future import select
 from datetime import datetime, timedelta
@@ -68,6 +68,7 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         sub_code = f"#SUB-{order.id}"
         svc.panel_username = sub_code
 
+        # Load category to check if it has a custom delivery message
         category = None
         if product.category_id:
             category = (await session.execute(select(Category).where(Category.id == product.category_id))).scalars().first()
@@ -93,14 +94,15 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                 logger.info(f"XUI panel found: url={panel_db.url}, username={panel_db.username}")
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                 
+                # Use custom server name or generate random
                 if not client.logged_in and not await client.login():
                     logger.error(f"Failed to login to XUI panel: {client.last_error}")
                 
                 if custom_server_name:
                     email = _sanitize_email(custom_server_name)
                     remark = f"@{email}"
-                    server_serial = 0
-                    serial_needs_increment = False
+                    server_serial = 0  # Custom names don't use sequential numbering
+                    serial_needs_increment = False  # Custom name, no serial to save
                     logger.info(f"Using custom server name: {email}")
                 else:
                     # For random names, ensure unique email
@@ -158,7 +160,27 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     f"name={remark}, email={email}, vol={total_gb}GB"
                 )
 
-                uuid_res = await client.add_client(inbound_id, email, total_gb, product.duration_days)
+                # Try to add client, retry with new serial if duplicate email error
+                uuid_res = None
+                max_add_attempts = 5
+                for add_attempt in range(max_add_attempts):
+                    uuid_res = await client.add_client(inbound_id, email, total_gb, product.duration_days)
+                    if uuid_res:
+                        break
+                    
+                    # Check if error is due to duplicate email
+                    err = client.last_error or ""
+                    if "duplicate" in err.lower() or "exists" in err.lower() or "already" in err.lower():
+                        # Email exists, try next serial
+                        server_serial += 1
+                        email, remark = await allocate_v2ray_server_names(serial=server_serial)
+                        client_email = email
+                        logger.info(f"Retrying with new serial {server_serial}, email={email}")
+                        if add_attempt < max_add_attempts - 1:
+                            continue
+                    
+                    logger.warning(f"add_client attempt {add_attempt + 1} failed: {client.last_error}")
+                
                 if uuid_res:
                     client_uuid = uuid_res
                     # Build direct link from THIS inbound specifically
