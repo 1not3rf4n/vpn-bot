@@ -1,3 +1,4 @@
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton, InputFile
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
@@ -15,6 +16,7 @@ from core.v2ray_delivery import (
     format_config_item_text,
     make_qr_bytes,
     parse_service_meta,
+    safe_copy_button,
     send_individual_configs_delivery,
     send_subscription_delivery,
 )
@@ -538,7 +540,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     from handlers.renew import start_renew
                     # Create mock callback_query for renewal handler
                     mock_query = type('obj', (object,), {
-                        'answer': lambda *a, **kw: None,
+                        'answer': lambda *a, **kw: asyncio.sleep(0),
                         'data': f'renew_svc_{service.id}',
                         'from_user': update.effective_user,
                         'edit_message_text': lambda text, **kw: update.message.reply_text(text, **kw)
@@ -711,10 +713,12 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 `{link}`"""
         from urllib.parse import quote
         encoded_text = quote("با ما به اینترنت آزاد متصل بشید ❤️")
+        btn = safe_copy_button(link, "📋 کپی لینک")
         keyboard = [
             [InlineKeyboardButton("📤 ارسال برای دوستان", url=f"https://t.me/share/url?url={link}&text={encoded_text}")],
-            [InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link))]
         ]
+        if btn:
+            keyboard.append([btn])
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif "کانفیگ رایگان" in text:
@@ -774,13 +778,15 @@ async def free_config_detail_handler(update: Update, context: ContextTypes.DEFAU
             return
         if is_v2ray:
             msg += f"لینک/کد:\n<code>{escape(config_text)}</code>"
-            if len(config_text) <= 256:
-                btn_list.append([InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_text))])
+            btn = safe_copy_button(config_text, "📋 کپی لینک سرور")
+            if btn:
+                btn_list.append([btn])
         else:
             for i, link in enumerate(links, 1):
                 msg += f"🔗 لینک {i}:\n<code>{escape(link)}</code>\n\n"
-                if len(link) <= 256:
-                    btn_list.append([InlineKeyboardButton(f"📋 کپی لینک {i}", copy_text=CopyTextButton(text=link))])
+                btn = safe_copy_button(link, f"📋 کپی لینک {i}")
+                if btn:
+                    btn_list.append([btn])
         
         btn_list.append([InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="back_to_free_list")])
         try:

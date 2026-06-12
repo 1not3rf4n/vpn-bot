@@ -12,6 +12,7 @@ from core.v2ray_delivery import (
     build_service_config_link,
     delivery_choice_keyboard,
     format_order_confirm_with_delivery,
+    safe_copy_button,
 )
 
 logger = logging.getLogger(__name__)
@@ -287,10 +288,8 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     reply_markup=delivery_choice_keyboard(svc_id),
                 )
             elif config_link:
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
-                keys = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📋 کپی لینک سرور", copy_text=CopyTextButton(text=config_link))]
-                ])
+                btn = safe_copy_button(config_link, "📋 کپی لینک سرور")
+                keys = InlineKeyboardMarkup([[btn]]) if btn else None
                 cat_del_msg = category.delivery_msg if (category and category.delivery_msg) else ""
                 if cat_del_msg:
                     final_text = f"{text}\n\n➖➖➖➖➖\n📦 <b>تحویل سرویس:</b>\n\n{cat_del_msg}\n\n<b>لینک مستقیم (کپی کنید):</b>\n\n<code>{config_link}</code>"

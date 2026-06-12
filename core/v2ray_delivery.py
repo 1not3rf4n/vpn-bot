@@ -217,11 +217,8 @@ MAX_COPY_TEXT = 4096
 def copy_button_row(text: str, label: str = "📋 کپی لینک") -> list:
     if not text:
         return []
-    safe_text = text[:MAX_COPY_TEXT]
-    try:
-        return [[InlineKeyboardButton(label, copy_text=CopyTextButton(text=safe_text))]]
-    except Exception:
-        return []
+    btn = safe_copy_button(text, label)
+    return [[btn]] if btn else []
 
 
 def safe_copy_button(text: str, label: str) -> InlineKeyboardButton | None:
