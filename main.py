@@ -97,10 +97,6 @@ def main():
     application.add_handler(CallbackQueryHandler(user_dashboard_callbacks)) # Fallback user callbacks
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), main_menu_handler))
     
-    # Server name selection handlers (for V2RAY custom name feature)
-    from handlers.shop import handle_server_name_choice
-    application.add_handler(CallbackQueryHandler(handle_server_name_choice, pattern=r"^srvname_"))
-
     logger.info("Starting polling...")
     application.run_polling()
 

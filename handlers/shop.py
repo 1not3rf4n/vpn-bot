@@ -271,14 +271,18 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return WAIT_SHOP_RECEIPT
 
         elif query.data == "shop_pay_wallet":
+            logger.info(f"Processing wallet payment for product {p_id}, user {user_id}")
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             product = (await session.execute(select(Product).where(Product.id == p_id))).scalars().first()
             
-            if not product: return ConversationHandler.END
+            if not product:
+                logger.error(f"Product {p_id} not found")
+                return ConversationHandler.END
             
             final_price = context.user_data.get('checkout_final_price', product.price)
             
             if user_db.wallet_balance < final_price:
+                logger.info(f"Insufficient balance: {user_db.wallet_balance} < {final_price}")
                 keys = [[InlineKeyboardButton("💳 شارژ کیف پول", callback_data="wallet_add")],
                         [InlineKeyboardButton("🔙 بازگشت", callback_data=f"usr_cat_{product.category_id}")]]
                 await query.edit_message_text(f"❌ موجودی کافی نیست. (نیاز: {final_price:,.0f} تومان ، موجودی: {user_db.wallet_balance:,.0f} تومان)", reply_markup=InlineKeyboardMarkup(keys))
@@ -292,12 +296,12 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 coupon = (await session.execute(select(DiscountCode).where(DiscountCode.id == c_id))).scalars().first()
                 if coupon: coupon.used_count += 1
                 
+            logger.info(f"Creating order for user {user_db.id}, product {product.id}, final_price={final_price}")
             from core.provision import provision_order_and_notify
             order = Order(user_id=user_db.id, product_id=product.id, amount=final_price, payment_method="WALLET", status="PAID")
             session.add(order)
             await session.commit()
-            
-            sub_code = f"#SUB-{order.id}"
+            logger.info(f"Order created with id={order.id}")
             
             # --- Referral Reward ---
             if user_db.referred_by_id:
@@ -310,19 +314,22 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         try:
                             await context.bot.send_message(inviter.telegram_id, f"🎉 زیرمجموعه شما خریدی انجام داد و مبلغ {reward} تومان به عنوان کمیسیون به کیف پول شما اضافه شد!")
                         except: pass
-# -----------------------
-                    await session.commit()
-                    
-                    keys = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به صفحه اصلی", callback_data="start_menu")]])
-                    await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
-                    
-                    # Check if custom server name is enabled for this product
-                    custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
-                    if custom_name_enabled and product.product_type == 'V2RAY':
-                        context.user_data['provision_order_id'] = order.id
-                        await ask_server_name(update, context)
-                    else:
-                        await provision_order_and_notify(order.id, context.bot)
+            await session.commit()
+            
+            keys = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به صفحه اصلی", callback_data="start_menu")]])
+            await query.edit_message_text(f"✅ پردازش موفقیت‌آمیز بود. لطفا چند لحظه منتظر صدور فاکتور و تحویل اکانت باشید...", reply_markup=keys)
+            
+            # Check if custom server name is enabled for this product
+            custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
+            logger.info(f"Custom name enabled: {custom_name_enabled}, product type: {product.product_type}")
+            if custom_name_enabled and product.product_type == 'V2RAY':
+                context.user_data['provision_order_id'] = order.id
+                logger.info(f"Asking server name for order {order.id}")
+                await ask_server_name(update, context)
+            else:
+                logger.info(f"Calling provision_order_and_notify for order {order.id}")
+                await provision_order_and_notify(order.id, context.bot)
+            return ConversationHandler.END
 
         elif query.data == "shop_pay_tetra98":
             tetra_enabled = await settings.get_setting("tetra98_enabled", "off")
@@ -407,12 +414,6 @@ async def shop_handle_method(update: Update, context: ContextTypes.DEFAULT_TYPE)
             keys.append([InlineKeyboardButton("✅ بررسی پرداخت", callback_data=f"tetra_verify_{order.id}")])
             keys.append([InlineKeyboardButton("🔙 انصراف", callback_data="shop_cancel")])
 
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
-            return ConversationHandler.END
-        
-    for k in ['checkout_prod_id', 'checkout_final_price', 'checkout_final_price_usd', 'checkout_coupon_id', 'checkout_pay_method']:
-        context.user_data.pop(k, None)
-        
     return ConversationHandler.END
 
 async def shop_receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):

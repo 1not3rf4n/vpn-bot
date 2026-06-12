@@ -27,6 +27,7 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         bot: Telegram bot instance
         custom_server_name: Optional custom server name for V2RAY services
     """
+    logger.info(f"provision_order_and_notify called: order_id={order_id}, custom_server_name={custom_server_name}")
     async with AsyncSessionLocal() as session:
         order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
         if not order or order.status != "PAID":
@@ -78,17 +79,18 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                 
                 # Use custom server name or generate random
+                # Ensure we're logged in first
+                if not client.logged_in and not await client.login():
+                    logger.error(f"Failed to login to XUI panel for duplicate check: {client.last_error}")
+                
                 if custom_server_name:
                     email = f"{custom_server_name}"
                     remark = f"@{custom_server_name}"
                     server_serial = 0  # Custom names don't use sequential numbering
                     
                     # Check if name already exists on panel, add random suffix if needed
-                    try:
-                        await client._get_csrf_token()
-                        # Try to login to check if client exists
-                        if await client.login():
-                            # Try to check if email already exists
+                    if client.logged_in:
+                        try:
                             test_links = await client.get_client_links(email)
                             if test_links:
                                 # Name exists, add random 4-digit suffix
@@ -96,15 +98,8 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                                 email = f"{custom_server_name}-{suffix}"
                                 remark = f"@{custom_server_name}-{suffix}"
                                 logger.info(f"Custom name {custom_server_name} exists, using {email} instead")
-                    except Exception as e:
-                        logger.debug(f"Could not check duplicate name: {e}")
-                    
-                    # Still increment serial counter for consistency
-                    try:
-                        serial = int(await get_setting("v2ray_server_serial", "0") or "0") + 1
-                        await set_setting("v2ray_server_serial", str(serial))
-                    except ValueError:
-                        await set_setting("v2ray_server_serial", "1")
+                        except Exception as e:
+                            logger.debug(f"Could not check duplicate name: {e}")
                 else:
                     email, remark, server_serial = await allocate_v2ray_server_names()
                 client_email = email
