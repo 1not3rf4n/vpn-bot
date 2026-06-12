@@ -543,7 +543,20 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif text.startswith("🎯 کانفیگ"):
                     await handle_v2ray_delivery_action(update, context, service, "cfg")
                 elif text.startswith("🔁 تمدید"):
-                    await update.message.reply_text("🔁 قابلیت تمدید در حال توسعه")
+                    # Convert to renewal callback
+                    from handlers.renew import start_renew
+                    # Create mock callback_query for renewal handler
+                    mock_query = type('obj', (object,), {
+                        'answer': lambda *a, **kw: None,
+                        'data': f'renew_svc_{service.id}',
+                        'from_user': update.effective_user,
+                        'edit_message_text': lambda text, **kw: update.message.reply_text(text, **kw)
+                    })()
+                    mock_update = type('obj', (object,), {
+                        'callback_query': mock_query,
+                        'effective_user': update.effective_user
+                    })()
+                    await start_renew(mock_update, context)
         except Exception as e:
             logger.error(f"Error parsing service button: {e}")
             await update.message.reply_text("❌ خطای پردازش")
