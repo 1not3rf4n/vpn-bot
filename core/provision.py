@@ -65,22 +65,21 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         sub_code = f"#SUB-{order.id}"
         svc.panel_username = sub_code
 
-        # Load category to check if it has a custom delivery message
+# Load category to check if it has a custom delivery message
         category = None
         if product.category_id:
             category = (await session.execute(select(Category).where(Category.id == product.category_id))).scalars().first()
-            
+
         delivery_note = "جهت تحویل کانفیگ به پشتیبانی پیام دهید."
         if category and category.delivery_msg:
             delivery_note = category.delivery_msg
         elif product.description:
             delivery_note = product.description
-            
+
         config_link = None
         client_email = ""
         client_uuid = ""
         remark = ""
-        server_serial = 0
         inbound_id = product.panel_id or 1
         
         logger.info(f"Provisioning order {order_id}: product={product.name}, type={product.product_type}, panel_id={product.panel_id}")
@@ -93,7 +92,6 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                 
                 # Use custom server name or generate random
-                # Ensure we're logged in first
                 if not client.logged_in and not await client.login():
                     logger.error(f"Failed to login to XUI panel for duplicate check: {client.last_error}")
                 
@@ -101,14 +99,40 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     email = _sanitize_email(custom_server_name)
                     remark = f"@{email}"
                     server_serial = 0  # Custom names don't use sequential numbering
-                    
-                    # For custom names, if email exists we reuse it (add to another inbound)
-                    # The add_client will handle adding the client with same email to different inbound
                     serial_needs_increment = False  # Custom name, no serial to save
+                    logger.info(f"Using custom server name: {email}")
                 else:
-                    email, remark = await allocate_v2ray_server_names(serial=server_serial)
-                
-                client_email = email
+                    # For random names, ensure unique email
+                    # If the email exists on panel, we need to try different serials
+                    max_attempts = 10
+                    for attempt in range(max_attempts):
+                        next_email, next_remark = await allocate_v2ray_server_names(serial=server_serial)
+                        
+                        # Check if email already exists on panel
+                        email_exists = False
+                        try:
+                            if client.logged_in:
+                                inbounds = await client.list_inbounds()
+                                for ib in inbounds:
+                                    for cs in ib.get("clientStats", []):
+                                        if cs.get("email") == next_email:
+                                            email_exists = True
+                                            break
+                                    if email_exists:
+                                        break
+                        except Exception as e:
+                            logger.warning(f"Could not check existing emails: {e}")
+                        
+                        if not email_exists:
+                            email = next_email
+                            remark = next_remark
+                            break
+                        
+                        logger.info(f"Email {next_email} already exists on panel, incrementing serial to {server_serial + 1}")
+                        server_serial += 1
+                    
+                    client_email = email
+                    logger.info(f"Random server name generated: {email} (serial={server_serial})")
 
                 total_gb = product.volume_gb or 0
                 logger.info(
@@ -116,7 +140,27 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     f"name={remark}, email={email}, vol={total_gb}GB"
                 )
 
-                uuid_res = await client.add_client(inbound_id, email, total_gb, product.duration_days)
+                # Try to add client, retry with new serial if duplicate email error
+                uuid_res = None
+                max_add_attempts = 5
+                for add_attempt in range(max_add_attempts):
+                    uuid_res = await client.add_client(inbound_id, email, total_gb, product.duration_days)
+                    if uuid_res:
+                        break
+                    
+                    # Check if error is due to duplicate email
+                    err = client.last_error or ""
+                    if "duplicate" in err.lower() or "exists" in err.lower() or "already" in err.lower():
+                        # Email exists, try next serial
+                        server_serial += 1
+                        email, remark = await allocate_v2ray_server_names(serial=server_serial)
+                        client_email = email
+                        logger.info(f"Retrying with new serial {server_serial}, email={email}")
+                        if add_attempt < max_add_attempts - 1:
+                            continue
+                    
+                    logger.warning(f"add_client attempt {add_attempt + 1} failed: {client.last_error}")
+                
                 if uuid_res:
                     client_uuid = uuid_res
                     panel_links = await client.get_client_links(email)

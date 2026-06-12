@@ -191,20 +191,22 @@ def format_sub_delivery_text(sub_code: str, product_name: str, sub_url: str) -> 
     )
 
 
-def format_config_item_text(index: int, total: int, link: str, remark: str = "") -> str:
+def format_config_item_text(index: int, total: int, link: str, remark: str = "", usage_info: str = "") -> str:
     title = f"📋 کانفیگ {index}/{total}"
     if remark:
         title += f" — {escape(remark)}"
-    short = link if len(link) <= 120 else link[:117] + "..."
-    return (
-        f"{_header_block(title, 'لینک مستقیم')}\n\n"
-        f"<code>{escape(short)}</code>\n\n"
-        f"📱 QR را اسکن کنید یا دکمه کپی را بزنید."
-    )
+    # Show full link and include usage/time info if provided
+    lines = [f"{_header_block(title, '🔗 لینک سرور')}", "", f"🔗 <code>{escape(link)}</code>", ""]
+    if usage_info:
+        lines.append(usage_info)
+        lines.append("")
+    lines.append("📱 می‌توانید QR را اسکن کنید یا دکمه کپی را بزنید.")
+    return "\n".join(lines)
 
 
 def copy_button_row(text: str, label: str = "📋 کپی لینک") -> list:
-    if not text or len(text) > 256:
+    # Allow copying longer links (Telegram copy text supports large payloads)
+    if not text:
         return []
     return [[InlineKeyboardButton(label, copy_text=CopyTextButton(text=text))]]
 
@@ -260,7 +262,8 @@ async def send_individual_configs_delivery(
     for i, link in enumerate(links, 1):
         remark = extract_remark_from_link(link) if link and "#" in link else f"سرور {i}"
         qr = make_qr_bytes(link)
-        caption = format_config_item_text(i, len(links), link, remark)
+        # Pass usage_info so each config shows usage/time if available
+        caption = format_config_item_text(i, len(links), link, remark, usage_info)
         keys = copy_button_row(link, f"📋 کپی کانفیگ {i}")
         await bot.send_photo(
             chat_id,

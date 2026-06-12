@@ -332,11 +332,11 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                     # Add inline buttons in a single row for better UX
                     row = []
                     if link_part:
-                        row.append(InlineKeyboardButton(f"🔗 سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
-                        row.append(InlineKeyboardButton(f"📋 کپی", copy_text=CopyTextButton(text=link_part)))
+                        row.append(InlineKeyboardButton(f"🔗 لینک سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
+                        row.append(InlineKeyboardButton(f"📋 کپی لینک", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        row.append(InlineKeyboardButton(f"📲 ساب", callback_data=f"v2del_sub_{s.id}"))
-                        row.append(InlineKeyboardButton(f"🎯 کانفیگ", callback_data=f"v2del_cfg_{s.id}"))
+                        row.append(InlineKeyboardButton(f"🔗 لینک ساب", callback_data=f"v2del_sub_{s.id}"))
+                        row.append(InlineKeyboardButton(f"🎯 کانفیگ‌ها", callback_data=f"v2del_cfg_{s.id}"))
                     if row:
                         keyboard.append(row)
             
@@ -456,11 +456,11 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Add inline buttons in a single row for better UX
                     row = []
                     if link_part:
-                        row.append(InlineKeyboardButton(f"🔗 سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
-                        row.append(InlineKeyboardButton(f"📋 کپی", copy_text=CopyTextButton(text=link_part)))
+                        row.append(InlineKeyboardButton(f"🔗 لینک سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
+                        row.append(InlineKeyboardButton(f"📋 کپی لینک", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        row.append(InlineKeyboardButton(f"📲 ساب", callback_data=f"v2del_sub_{s.id}"))
-                        row.append(InlineKeyboardButton(f"🎯 کانفیگ", callback_data=f"v2del_cfg_{s.id}"))
+                        row.append(InlineKeyboardButton(f"🔗 لینک ساب", callback_data=f"v2del_sub_{s.id}"))
+                        row.append(InlineKeyboardButton(f"🎯 کانفیگ‌ها", callback_data=f"v2del_cfg_{s.id}"))
                     if row:
                         keys.append(row)
             
