@@ -5,6 +5,7 @@ import base64
 import io
 import logging
 from html import escape
+from urllib.parse import urlparse
 
 import httpx
 import qrcode
@@ -134,7 +135,8 @@ def build_subscription_url(panel_base_url: str, sub_id: str, sub_path: str | Non
         path = "/" + path
     if not path.endswith("/"):
         path += "/"
-    base = panel_base_url.rstrip("/")
+    parsed = urlparse(panel_base_url.rstrip("/"))
+    base = f"{parsed.scheme}://{parsed.netloc}"
     return f"{base}{path}{sub_id}"
 
 

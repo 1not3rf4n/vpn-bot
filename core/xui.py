@@ -619,12 +619,12 @@ class XUIApi:
             path = "/" + path
         if not path.endswith("/"):
             path += "/"
-        # Handle panels where subscription is on a different port (e.g., 8000 panel -> 2096 sub)
         url = self.url
         if ":8000" in url or ":8001" in url:
-            # Assume subscription is on port 2096
             url = url.replace(":8000", ":2096").replace(":8001", ":2096")
-        return f"{url.rstrip('/')}{path}{sub_id}"
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        return f"{base}{path}{sub_id}"
 
     async def close(self):
         await self.session.aclose()
