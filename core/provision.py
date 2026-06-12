@@ -28,6 +28,19 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         custom_server_name: Optional custom server name for V2RAY services
     """
     logger.info(f"provision_order_and_notify called: order_id={order_id}, custom_server_name={custom_server_name}")
+    
+    # For random server names, get serial BEFORE session to avoid DB lock
+    server_serial = 0
+    serial_needs_increment = False
+    if not custom_server_name:
+        try:
+            current_serial = int(await get_setting("v2ray_server_serial", "0") or "0")
+            server_serial = current_serial + 1
+            serial_needs_increment = True
+        except ValueError:
+            server_serial = 1
+            serial_needs_increment = True
+    
     async with AsyncSessionLocal() as session:
         order = (await session.execute(select(Order).where(Order.id == order_id))).scalars().first()
         if not order or order.status != "PAID":
@@ -100,8 +113,9 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                                 logger.info(f"Custom name {custom_server_name} exists, using {email} instead")
                         except Exception as e:
                             logger.debug(f"Could not check duplicate name: {e}")
+                    serial_needs_increment = False  # Custom name, no serial to save
                 else:
-                    email, remark, server_serial = await allocate_v2ray_server_names()
+                    email, remark = await allocate_v2ray_server_names(serial=server_serial)
                 client_email = email
 
                 total_gb = product.volume_gb or 0
@@ -177,7 +191,7 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                         inviter.wallet_balance += commission
                         logger.info(f"Referral reward: {commission} given to user {inviter.id} for order {order.id}")
                         
-                        # Notify inviter
+# Notify inviter
                         try:
                             msg_text = (
                                 f"🎁 <b>تبریک! هدیه معرفی دوستان</b>\n\n"
@@ -189,8 +203,16 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                             logger.error(f"Failed to notify inviter {inviter.telegram_id}: {ne}")
             except Exception as re:
                 logger.error(f"Referral system error: {re}")
-
+        
         await session.commit()
+        
+        # Increment serial AFTER session commit to avoid DB lock
+        if serial_needs_increment:
+            from core.settings import set_setting
+            try:
+                await set_setting("v2ray_server_serial", str(server_serial))
+            except Exception as se:
+                logger.error(f"Failed to increment server serial: {se}")
         
         try:
             from html import escape

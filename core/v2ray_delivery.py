@@ -19,22 +19,21 @@ V2RAY_PREFIXES = ("vless://", "vmess://", "trojan://", "ss://")
 DEFAULT_SERVER_PREFIX = "zyphervpnsalle"
 
 
-async def allocate_v2ray_server_names() -> tuple[str, str, int]:
+async def allocate_v2ray_server_names(serial: int = None) -> tuple[str, str]:
     """
-    Next sequential server id: panel email zyphervpnsalle{N}, display @zyphervpnsalle{N}.
+    Generate server email/remark from the given serial number.
+    Does NOT read/write settings - caller provides serial.
+    Returns: (panel_email, display_remark)
     """
-    from core.settings import get_setting, set_setting
+    from core.settings import get_setting
 
     raw_prefix = await get_setting("v2ray_server_prefix", DEFAULT_SERVER_PREFIX) or DEFAULT_SERVER_PREFIX
     prefix = raw_prefix.lstrip("@").strip() or DEFAULT_SERVER_PREFIX
-    try:
-        serial = int(await get_setting("v2ray_server_serial", "0") or "0") + 1
-    except ValueError:
+    if serial is None:
         serial = 1
-    await set_setting("v2ray_server_serial", str(serial))
     panel_email = f"{prefix}{serial}"
     display_remark = f"@{prefix}{serial}"
-    return panel_email, display_remark, serial
+    return panel_email, display_remark
 
 
 def apply_remark_to_link(link: str, remark: str) -> str:
