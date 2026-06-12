@@ -61,9 +61,10 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         if getattr(product, 'duration_days', None):
             svc.expire_date = datetime.utcnow() + timedelta(days=product.duration_days)
             order.expire_date = svc.expire_date
-            
+        
         sub_code = f"#SUB-{order.id}"
         svc.panel_username = sub_code
+
         # Load category to check if it has a custom delivery message
         category = None
         if product.category_id:

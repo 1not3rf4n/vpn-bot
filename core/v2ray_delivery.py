@@ -74,14 +74,15 @@ def build_service_config_link(
     if remark and direct_link:
         direct_link = apply_remark_to_link(direct_link, remark)
     base = direct_link or ""
-    parts = [base, "", f"کد رهگیری: {sub_code}"]
-    if email:
-        meta = f"{META_PREFIX}email={email}|inbound={inbound_id}|uuid={client_uuid}"
-        if remark:
-            meta += f"|remark={remark}"
-        if serial:
-            meta += f"|serial={serial}"
-        parts.append(meta)
+    
+    # Always include metadata for subscription access
+    meta = f"{META_PREFIX}email={email}|inbound={inbound_id}|uuid={client_uuid}"
+    if remark:
+        meta += f"|remark={remark}"
+    if serial:
+        meta += f"|serial={serial}"
+    
+    parts = [base, f"کد رهگیری: {sub_code}", meta]
     return "\n".join(parts).strip()
 
 

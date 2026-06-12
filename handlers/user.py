@@ -57,8 +57,6 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
 
     parts = query.data.split("_")
     action = parts[1]  # server, cfg, or sub
-    # For v2del_server_{idx}_{svc_id}, svc_id is the last part
-    # For v2del_sub_{svc_id} or v2del_cfg_{svc_id}, svc_id is the last part
     svc_id = int(parts[-1])
     chat_id = update.effective_chat.id
 
@@ -72,6 +70,21 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         direct = extract_direct_link(svc.config_link)
         meta = parse_service_meta(svc.config_link)
         client_email = meta.get("email", "")
+        
+        # If no email in meta, try to extract it from panel_username or the config_link remark
+        if not client_email:
+            pn = svc.panel_username or ""
+            if pn and not pn.startswith("#SUB-"):
+                client_email = pn
+            elif direct and "#" in direct:
+                # Extract remark from URL fragment - remark format is usually @emailname
+                try:
+                    from urllib.parse import unquote
+                    remark_in_link = unquote(direct.split("#", 1)[1])
+                    # Remove @ prefix if present
+                    client_email = remark_in_link.lstrip("@")
+                except Exception:
+                    pass
 
         panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
 
@@ -88,7 +101,6 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         days_left = max(0, (svc.expire_date - datetime.now()).days) if svc.expire_date else "نامحدود"
         usage_str = ""
 
-        # Get usage stats
         try:
             client_stats = await xui.get_all_client_stats()
             if client_stats and client_email:
@@ -102,7 +114,6 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
             pass
 
         if action == "server":
-            # Show individual server link with QR
             if direct:
                 qr = make_qr_bytes(direct)
                 caption = f"🔗 <b>لینک سرور</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{direct}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک را کپی کنید"
@@ -113,12 +124,23 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(copy_button_row(direct, "📋 کپی لینک")),
                 )
-            else:
-                await query.message.reply_text("❌ لینک سرور یافت نشد.", parse_mode="HTML")
             await xui.close()
             return
 
-        # For cfg action - fetch all individual configs from subscription
+        if action == "sub":
+            sub_url = xui.build_subscription_url(sub_id, sub_path)
+            qr = make_qr_bytes(sub_url)
+            caption = f"🔗 <b>لینک ساب</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{sub_url}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک ساب را کپی کنید"
+            await context.bot.send_photo(
+                chat_id,
+                photo=InputFile(qr, filename="qr.png"),
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(copy_button_row(sub_url, "📋 کپی لینک ساب")),
+            )
+            await xui.close()
+            return
+
         links = []
         if sub_id:
             sub_url = xui.build_subscription_url(sub_id, sub_path)
@@ -311,8 +333,9 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                     if link_part:
                         keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک سرور #{idx}", callback_data=f"v2del_server_{idx}_{s.id}")])
                         keyboard.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
-                    # Add subscription config button for active services
+                    # Add subscription link button for active services
                     if s.status == "ACTIVE":
+                        keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
                         keyboard.insert(-2, [InlineKeyboardButton(f"📲 کانفیگ‌های ساب #{idx}", callback_data=f"v2del_cfg_{s.id}")])
 
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -431,6 +454,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک سرور #{idx}", callback_data=f"v2del_server_{idx}_{s.id}")])
                         keys.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
                     if s.status == "ACTIVE":
+                        keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
                         keys.insert(-2, [InlineKeyboardButton(f"📲 کانفیگ‌های ساب #{idx}", callback_data=f"v2del_cfg_{s.id}")])
             
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
