@@ -1,4 +1,3 @@
-import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton, InputFile
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
@@ -539,13 +538,17 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif text.startswith("🔁 تمدید"):
                     # Convert to renewal callback
                     from handlers.renew import start_renew
-                    # Create mock callback_query for renewal handler
-                    mock_query = type('obj', (object,), {
-                        'answer': lambda *a, **kw: asyncio.sleep(0),
-                        'data': f'renew_svc_{service.id}',
-                        'from_user': update.effective_user,
-                        'edit_message_text': lambda text, **kw: update.message.reply_text(text, **kw)
-                    })()
+
+                    class _MockQuery:
+                        def __init__(self, svc_id, user):
+                            self.data = f"renew_svc_{svc_id}"
+                            self.from_user = user
+                        async def answer(self, *a, **kw):
+                            pass
+                        async def edit_message_text(self, text, **kw):
+                            await update.message.reply_text(text, **kw)
+
+                    mock_query = _MockQuery(service.id, update.effective_user)
                     mock_update = type('obj', (object,), {
                         'callback_query': mock_query,
                         'effective_user': update.effective_user
