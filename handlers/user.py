@@ -516,7 +516,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg or not msg.text: return
     text = msg.text
-    user_id = update.effective_user.id
+    user = update.effective_user
+    if not user:
+        return
+    user_id = user.id
 
     # Handle service action buttons first (e.g., "🔗 ساب #1", "🎯 کانفیگ #1", "🔁 تمدید #1")
     if text.startswith("🔗 ساب #") or text.startswith("🎯 کانفیگ #") or text.startswith("🔁 تمدید #"):
