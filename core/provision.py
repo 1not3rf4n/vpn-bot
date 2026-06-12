@@ -16,6 +16,9 @@ from core.v2ray_delivery import (
 
 logger = logging.getLogger(__name__)
 
+def _sanitize_email(email: str) -> str:
+    return "".join(c for c in (email or "") if c.isalnum() or c in "-_").strip()
+
 async def provision_order_and_notify(order_id: int, bot, custom_server_name: str = None):
     """
     Called when an order enters PAID status.
@@ -65,22 +68,20 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         sub_code = f"#SUB-{order.id}"
         svc.panel_username = sub_code
 
-        # Load category to check if it has a custom delivery message
         category = None
         if product.category_id:
             category = (await session.execute(select(Category).where(Category.id == product.category_id))).scalars().first()
-            
+
         delivery_note = "جهت تحویل کانفیگ به پشتیبانی پیام دهید."
         if category and category.delivery_msg:
             delivery_note = category.delivery_msg
         elif product.description:
             delivery_note = product.description
-            
+
         config_link = None
         client_email = ""
         client_uuid = ""
         remark = ""
-        server_serial = 0
         inbound_id = product.panel_id or 1
         
         logger.info(f"Provisioning order {order_id}: product={product.name}, type={product.product_type}, panel_id={product.panel_id}")
@@ -92,23 +93,19 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                 logger.info(f"XUI panel found: url={panel_db.url}, username={panel_db.username}")
                 client = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                 
-                # Use custom server name or generate random
-                # Ensure we're logged in first
                 if not client.logged_in and not await client.login():
-                    logger.error(f"Failed to login to XUI panel for duplicate check: {client.last_error}")
+                    logger.error(f"Failed to login to XUI panel: {client.last_error}")
                 
                 if custom_server_name:
                     email = _sanitize_email(custom_server_name)
                     remark = f"@{email}"
-                    server_serial = 0  # Custom names don't use sequential numbering
-                    
-                    # For custom names, if email exists we reuse it (add to another inbound)
-                    # The add_client will handle adding the client with same email to different inbound
-                    serial_needs_increment = False  # Custom name, no serial to save
+                    server_serial = 0
+                    serial_needs_increment = False
+                    logger.info(f"Using custom server name: {email}")
                 else:
                     email, remark = await allocate_v2ray_server_names(serial=server_serial)
-                
-                client_email = email
+                    client_email = email
+                    logger.info(f"Random server name generated: {email} (serial={server_serial})")
 
                 total_gb = product.volume_gb or 0
                 logger.info(
@@ -119,14 +116,12 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                 uuid_res = await client.add_client(inbound_id, email, total_gb, product.duration_days)
                 if uuid_res:
                     client_uuid = uuid_res
-                    panel_links = await client.get_client_links(email)
-                    direct_link = apply_remark_to_link(panel_links[0], remark) if panel_links else None
-                    if not direct_link:
-                        direct_link = await client.build_direct_link(inbound_id, uuid_res, remark)
+                    # Build direct link from THIS inbound specifically
+                    direct_link = await client.build_direct_link(inbound_id, uuid_res, remark)
                     if direct_link:
                         config_link = direct_link
                         delivery_note = f"✅ سرور شما با موفقیت ساخته شد!\n\n<b>لینک مستقیم اتصال:</b>\n\n<code>{direct_link}</code>"
-                        logger.info(f"V2RAY provisioned OK: {remark}, api={client.api_mode}")
+                        logger.info(f"V2RAY provisioned OK: {remark}, inbound={inbound_id}, api={client.api_mode}")
                     else:
                         delivery_note = "❌ سرور ساخته شد ولی لینک ساخته نشد. لطفا به پشتیبانی پیام دهید."
                 else:
@@ -153,10 +148,10 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                             )
                         except Exception:
                             pass
-                await client.close()
+                    await client.close()
             else:
                 delivery_note = "❌ ادمین هنوز سرور متصل X-UI را به ربات معرفی نکرده است. لطفا به پشتیبانی پیام دهید."
-                 
+                  
         if config_link:
             svc.config_link = build_service_config_link(
                 config_link,
@@ -172,6 +167,7 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
         session.add(svc)
         await session.flush()
         svc_id = svc.id
+        
         # Referral System
         if user.referred_by_id:
             try:
@@ -183,7 +179,6 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                         inviter.wallet_balance += commission
                         logger.info(f"Referral reward: {commission} given to user {inviter.id} for order {order.id}")
                         
-# Notify inviter
                         try:
                             msg_text = (
                                 f"🎁 <b>تبریک! هدیه معرفی دوستان</b>\n\n"
