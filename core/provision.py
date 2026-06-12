@@ -98,25 +98,16 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     logger.error(f"Failed to login to XUI panel for duplicate check: {client.last_error}")
                 
                 if custom_server_name:
-                    email = f"{custom_server_name}"
-                    remark = f"@{custom_server_name}"
+                    email = _sanitize_email(custom_server_name)
+                    remark = f"@{email}"
                     server_serial = 0  # Custom names don't use sequential numbering
                     
-                    # Check if name already exists on panel, add random suffix if needed
-                    if client.logged_in:
-                        try:
-                            test_links = await client.get_client_links(email)
-                            if test_links:
-                                # Name exists, add random 4-digit suffix
-                                suffix = random.randint(1000, 9999)
-                                email = f"{custom_server_name}-{suffix}"
-                                remark = f"@{custom_server_name}-{suffix}"
-                                logger.info(f"Custom name {custom_server_name} exists, using {email} instead")
-                        except Exception as e:
-                            logger.debug(f"Could not check duplicate name: {e}")
+                    # For custom names, if email exists we reuse it (add to another inbound)
+                    # The add_client will handle adding the client with same email to different inbound
                     serial_needs_increment = False  # Custom name, no serial to save
                 else:
                     email, remark = await allocate_v2ray_server_names(serial=server_serial)
+                
                 client_email = email
 
                 total_gb = product.volume_gb or 0

@@ -192,7 +192,7 @@ async def req_xui_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     text += (
         "برای ثبت یا آپدیت پنل، آدرس <b>کامل</b> پنل را بفرستید (با مسیر امنیتی):\n"
-        "مثلاً <code>https://domain.com/sayradical</code>\n"
+        "مثلاً <code>https://domain.com/SecretPath</code>\n"
         "یا <code>http://1.1.1.1:2053/SecretPath</code>"
     )
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")

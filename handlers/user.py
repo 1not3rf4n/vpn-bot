@@ -128,7 +128,11 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         if action == "sub":
-            sub_url = xui.build_subscription_url(sub_id, sub_path)
+            # Use panel's sub_url if available, otherwise construct from panel URL
+            if panel_db.sub_url:
+                sub_url = f"{panel_db.sub_url.rstrip('/')}/{sub_id}"
+            else:
+                sub_url = xui.build_subscription_url(sub_id, sub_path)
             qr = make_qr_bytes(sub_url)
             caption = f"🔗 <b>لینک ساب</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{sub_url}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک ساب را کپی کنید"
             await context.bot.send_photo(
@@ -143,7 +147,10 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
 
         links = []
         if sub_id:
-            sub_url = xui.build_subscription_url(sub_id, sub_path)
+            if panel_db.sub_url:
+                sub_url = f"{panel_db.sub_url.rstrip('/')}/{sub_id}"
+            else:
+                sub_url = xui.build_subscription_url(sub_id, sub_path)
             links = await fetch_subscription_configs(sub_url)
         if not links and direct:
             links = [direct]
@@ -286,7 +293,7 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
             result = await session.execute(select(Service).where(Service.user_id == db_user.id).order_by(Service.id.desc()))
             services = result.scalars().all()
             
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")], [InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")]]
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
             
             if not services:
                 text = "🌐 <b>سرویس‌های من</b>\n\nشما هیچ سرویس فعالی ندارید!"
@@ -329,15 +336,18 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                     text += "➖➖➖➖➖➖\n"
                     
                     link_part = extract_direct_link(s.config_link)
-                    # Add buttons for this service
+                    # Add inline buttons in a single row for better UX
+                    row = []
                     if link_part:
-                        keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک سرور #{idx}", callback_data=f"v2del_server_{idx}_{s.id}")])
-                        keyboard.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
-                    # Add subscription link button for active services
+                        row.append(InlineKeyboardButton(f"🔗 سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
+                        row.append(InlineKeyboardButton(f"📋 کپی", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
-                        keyboard.insert(-2, [InlineKeyboardButton(f"📲 کانفیگ‌های ساب #{idx}", callback_data=f"v2del_cfg_{s.id}")])
-
+                        row.append(InlineKeyboardButton(f"📲 ساب", callback_data=f"v2del_sub_{s.id}"))
+                        row.append(InlineKeyboardButton(f"🎯 کانفیگ", callback_data=f"v2del_cfg_{s.id}"))
+                    if row:
+                        keyboard.append(row)
+            
+            keyboard.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")])
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,7 +427,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             
             msg = "🌐 <b>سرویس‌های من</b>\n\n"
-            keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")], [InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")]]
+            keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
             
             if not services:
                 msg += "شما هیچ سرویس فعالی ندارید!"
@@ -450,13 +460,18 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msg += "➖➖➖➖➖➖\n"
                     
                     link_part = extract_direct_link(s.config_link)
+                    # Add inline buttons in a single row for better UX
+                    row = []
                     if link_part:
-                        keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک سرور #{idx}", callback_data=f"v2del_server_{idx}_{s.id}")])
-                        keys.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
+                        row.append(InlineKeyboardButton(f"🔗 سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
+                        row.append(InlineKeyboardButton(f"📋 کپی", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
-                        keys.insert(-2, [InlineKeyboardButton(f"📲 کانفیگ‌های ساب #{idx}", callback_data=f"v2del_cfg_{s.id}")])
+                        row.append(InlineKeyboardButton(f"📲 ساب", callback_data=f"v2del_sub_{s.id}"))
+                        row.append(InlineKeyboardButton(f"🎯 کانفیگ", callback_data=f"v2del_cfg_{s.id}"))
+                    if row:
+                        keys.append(row)
             
+            keys.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")])
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
             
     elif "مدیریت" in text:

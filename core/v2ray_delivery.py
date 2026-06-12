@@ -129,12 +129,12 @@ def make_qr_bytes(data: str) -> io.BytesIO:
 
 
 def build_subscription_url(panel_base_url: str, sub_id: str, sub_path: str | None = None) -> str:
-    base = panel_base_url.rstrip("/")
     path = (sub_path or "/sub/").strip()
     if not path.startswith("/"):
         path = "/" + path
     if not path.endswith("/"):
         path += "/"
+    base = panel_base_url.rstrip("/")
     return f"{base}{path}{sub_id}"
 
 
@@ -224,6 +224,18 @@ async def send_subscription_delivery(
     )
 
 
+def extract_remark_from_link(link: str) -> str:
+    """Extract remark/name from a v2ray link URL fragment."""
+    if not link or "#" not in link:
+        return ""
+    try:
+        from urllib.parse import unquote
+        remark = unquote(link.split("#", 1)[1])
+        return remark
+    except Exception:
+        return ""
+
+
 async def send_individual_configs_delivery(
     bot, chat_id: int, *, links: list[str], sub_code: str, product_name: str, usage_info: str = ""
 ):
@@ -246,13 +258,7 @@ async def send_individual_configs_delivery(
     await bot.send_message(chat_id, intro, parse_mode="HTML")
 
     for i, link in enumerate(links, 1):
-        remark = ""
-        if "#" in link:
-            try:
-                from urllib.parse import unquote
-                remark = unquote(link.split("#", 1)[1])
-            except Exception:
-                pass
+        remark = extract_remark_from_link(link) if link and "#" in link else f"سرور {i}"
         qr = make_qr_bytes(link)
         caption = format_config_item_text(i, len(links), link, remark)
         keys = copy_button_row(link, f"📋 کپی کانفیگ {i}")
