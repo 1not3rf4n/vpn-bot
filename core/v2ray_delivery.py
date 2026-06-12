@@ -69,7 +69,6 @@ def build_service_config_link(
     client_uuid: str = "",
     remark: str = "",
     serial: int = 0,
-    sub_id: str = "",
 ) -> str:
     """Persist direct link plus hidden metadata for later delivery."""
     if remark and direct_link:
@@ -82,8 +81,6 @@ def build_service_config_link(
         meta += f"|remark={remark}"
     if serial:
         meta += f"|serial={serial}"
-    if sub_id:
-        meta += f"|sub_id={sub_id}"
 
     parts = [base, f"کد رهگیری: {sub_code}", meta]
     return "\n".join(parts).strip()

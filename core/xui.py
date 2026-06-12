@@ -275,8 +275,7 @@ class XUIApi:
         expiry_time = int((time.time() + (expire_days * 86400)) * 1000) if expire_days > 0 else 0
         total_bytes = int(total_gb * 1073741824) if total_gb > 0 else 0
         flow = self._inbound_needs_flow(inbound) if inbound else ""
-        # Let X-UI panel generate subId automatically (don't specify it)
-        sub_id = ""
+        sub_id = email
 
         strategies = [
             self._add_client_panel_inbound,

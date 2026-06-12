@@ -73,8 +73,7 @@ async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEF
 
         sub_path = await settings.get_setting("xui_sub_path", "/sub/")
         xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
-        # Use subscription ID from metadata if available, fallback to email
-        sub_id = meta.get("sub_id", "") or client_email
+        sub_id = client_email
         display_remark = meta.get("remark", "")
 
         exp_date = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"
@@ -125,8 +124,8 @@ async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEF
 
         if action == "cfg":
             links = []
-            if sub_id:
-                sub_url = xui.build_subscription_url(sub_id, sub_path)
+            if client_email:
+                sub_url = xui.build_subscription_url(client_email, sub_path)
                 links = await fetch_subscription_configs(sub_url)
             if not links and direct:
                 links = [direct]
@@ -228,8 +227,7 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
 
         sub_path = await settings.get_setting("xui_sub_path", "/sub/")
         xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
-        # Use subscription ID from metadata if available, fallback to email
-        sub_id = meta.get("sub_id", "") or client_email
+        sub_id = client_email
         display_remark = meta.get("remark", "")
 
         exp_date = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"

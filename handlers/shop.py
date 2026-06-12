@@ -107,32 +107,109 @@ async def send_invoice_panel(query, context, product):
 async def checkout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     shop_en = await settings.get_setting("menu_shop", "on")
     if shop_en != "on":
         await query.edit_message_text("❌ فروشگاه در حال حاضر بسته است.")
         return ConversationHandler.END
     p_id = int(query.data.split("_")[1])
     context.user_data['checkout_prod_id'] = p_id
-    
+
     async with AsyncSessionLocal() as session:
         res = await session.execute(select(Product).where(Product.id == p_id))
         product = res.scalars().first()
         if not product or not getattr(product, 'is_active', True):
             await query.edit_message_text("❌ متاسفانه این محصول در حال حاضر مجاز به فروش نیست.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
             return ConversationHandler.END
-            
+
     context.user_data['checkout_final_price'] = product.price
     context.user_data['checkout_original_price'] = product.price
     context.user_data['checkout_discount_percent'] = 0
-    
+
     usd_rate = float(await settings.get_setting("usd_exchange_rate", "65000"))
     price_usd = round(product.price / usd_rate, 1) if product.price > 0 else 0.0
     context.user_data['checkout_final_price_usd'] = price_usd
     context.user_data['checkout_original_price_usd'] = price_usd
-    
+
+    # Check if custom server name is enabled for this product
+    custom_name_enabled = await settings.get_setting("custom_server_name_enabled", "on") == "on"
+    if custom_name_enabled and product.product_type == 'V2RAY':
+        # Ask for server name before showing payment options
+        keys = [
+            [InlineKeyboardButton("🎲 استفاده از اسم رندوم سیستم", callback_data="checkout_random_name")],
+            [InlineKeyboardButton("✏️ انتخاب اسم دلخواه", callback_data="checkout_custom_name")]
+        ]
+        await query.edit_message_text(
+            "🌐 <b>انتخاب اسم سرور</b>\n\n"
+            "لطفاً یکی را انتخاب کنید:\n\n"
+            "🎲 <b>رندوم</b>: سیستم به صورت خودکار یک اسم برای سرور شما انتخاب می‌کند.\n"
+            "✏️ <b>دلخواه</b>: شما می‌توانید اسم دلخواه خود را وارد کنید (مثلاً myname-vpn).",
+            reply_markup=InlineKeyboardMarkup(keys),
+            parse_mode="HTML"
+        )
+        return WAIT_SHOP_ACTION
+
     await send_invoice_panel(query, context, product)
     return WAIT_SHOP_ACTION
+
+
+async def handle_checkout_server_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle random or custom server name selection at checkout."""
+    query = update.callback_query
+    await query.answer()
+
+    p_id = context.user_data.get('checkout_prod_id')
+    async with AsyncSessionLocal() as session:
+        product = (await session.execute(select(Product).where(Product.id == p_id))).scalars().first()
+
+        if query.data == "checkout_random_name":
+            context.user_data.pop('custom_server_name', None)
+            await send_invoice_panel(query, context, product)
+            return WAIT_SHOP_ACTION
+
+        elif query.data == "checkout_custom_name":
+            await query.edit_message_text(
+                "✏️ لطفاً اسم دلخواه سرور خود را وارد کنید:\n\n"
+                "(فقط حروف انگلیسی، اعداد و کاراکترهای - و _ مجازند)\n"
+                "مثال: myvpn-server یا uk-london",
+                reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+            )
+            return WAIT_SERVER_NAME
+
+
+async def save_checkout_server_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save custom server name and show invoice."""
+    import re
+    name = update.message.text.strip()
+
+    # Validate: only alphanumeric, dash and underscore
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        await update.message.reply_text(
+            "❌ فقط حروف انگلیسی، اعداد و کاراکترهای - و _ مجازند!\n"
+            "مثال: myvpn-server یا uk_london",
+            reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+        )
+        return WAIT_SERVER_NAME
+
+    # Limit length
+    if len(name) > 32:
+        await update.message.reply_text(
+            "❌ طول اسم نباید بیش از 32 کاراکتر باشد!",
+            reply_markup=InlineKeyboardMarkup(CANCEL_BTN)
+        )
+        return WAIT_SERVER_NAME
+
+    context.user_data['custom_server_name'] = name
+
+    p_id = context.user_data.get('checkout_prod_id')
+    async with AsyncSessionLocal() as session:
+        product = (await session.execute(select(Product).where(Product.id == p_id))).scalars().first()
+        if product:
+            # Create a fake query object for send_invoice_panel
+            await send_invoice_panel(update.message, context, product)
+
+    return WAIT_SHOP_ACTION
+
 
 async def ask_for_coupon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -604,6 +681,7 @@ def get_shop_handlers():
             entry_points=[CallbackQueryHandler(checkout_start, pattern="^buyprod_")],
             states={
                 WAIT_SHOP_ACTION: [
+                    CallbackQueryHandler(handle_checkout_server_name, pattern="^checkout_random_name$|^checkout_custom_name$"),
                     CallbackQueryHandler(ask_for_coupon, pattern="^shop_enter_coupon$"),
                     CallbackQueryHandler(shop_select_method, pattern="^shop_select_method$")
                 ],
@@ -613,7 +691,10 @@ def get_shop_handlers():
                 ],
                 WAIT_SHOP_METHOD: [CallbackQueryHandler(shop_handle_method, pattern="^shop_pay_")],
                 WAIT_SHOP_RECEIPT: [MessageHandler(filters.PHOTO, shop_receive_receipt)],
-                WAIT_SERVER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_custom_server_name)]
+                WAIT_SERVER_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, save_checkout_server_name),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, save_custom_server_name)
+                ]
             },
             fallbacks=[
                 CallbackQueryHandler(cancel_chk, pattern="^usr_cat_|shop_cancel|server_name_|^srvname_"),
