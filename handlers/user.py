@@ -128,11 +128,7 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         if action == "sub":
-            # Use panel's sub_url if available, otherwise construct from panel URL
-            if panel_db.sub_url:
-                sub_url = f"{panel_db.sub_url.rstrip('/')}/{sub_id}"
-            else:
-                sub_url = xui.build_subscription_url(sub_id, sub_path)
+            sub_url = xui.build_subscription_url(sub_id, sub_path)
             qr = make_qr_bytes(sub_url)
             caption = f"🔗 <b>لینک ساب</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{sub_url}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک ساب را کپی کنید"
             await context.bot.send_photo(
@@ -147,10 +143,7 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
 
         links = []
         if sub_id:
-            if panel_db.sub_url:
-                sub_url = f"{panel_db.sub_url.rstrip('/')}/{sub_id}"
-            else:
-                sub_url = xui.build_subscription_url(sub_id, sub_path)
+            sub_url = xui.build_subscription_url(sub_id, sub_path)
             links = await fetch_subscription_configs(sub_url)
         if not links and direct:
             links = [direct]
