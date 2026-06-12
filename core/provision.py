@@ -103,34 +103,50 @@ async def provision_order_and_notify(order_id: int, bot, custom_server_name: str
                     logger.info(f"Using custom server name: {email}")
                 else:
                     # For random names, ensure unique email
-                    # If the email exists on panel, we need to try different serials
+                    # Try a few sequential serials, but prefer a reliable panel check
                     max_attempts = 10
                     for attempt in range(max_attempts):
                         next_email, next_remark = await allocate_v2ray_server_names(serial=server_serial)
-                        
+
                         # Check if email already exists on panel
                         email_exists = False
                         try:
                             if client.logged_in:
-                                inbounds = await client.list_inbounds()
-                                for ib in inbounds:
-                                    for cs in ib.get("clientStats", []):
-                                        if cs.get("email") == next_email:
-                                            email_exists = True
+                                # Prefer direct links API which is more reliable for existence
+                                try:
+                                    links_for_email = await client.get_client_links(next_email)
+                                    if links_for_email:
+                                        email_exists = True
+                                except Exception:
+                                    # Fallback to scanning clientStats
+                                    inbounds = await client.list_inbounds()
+                                    for ib in inbounds:
+                                        for cs in ib.get("clientStats", []):
+                                            if cs.get("email") == next_email:
+                                                email_exists = True
+                                                break
+                                        if email_exists:
                                             break
-                                    if email_exists:
-                                        break
                         except Exception as e:
-                            logger.warning(f"Could not check existing emails: {e}")
-                        
+                            logger.warning(f"Could not check existing emails reliably: {e}")
+
                         if not email_exists:
                             email = next_email
                             remark = next_remark
                             break
-                        
+
                         logger.info(f"Email {next_email} already exists on panel, incrementing serial to {server_serial + 1}")
                         server_serial += 1
-                    
+
+                    # If still not unique after attempts, fallback to append a short random suffix
+                    if not email:
+                        import secrets
+                        rand = secrets.token_hex(3)
+                        # Use last generated next_email as base
+                        email = f"{next_email}-{rand}"
+                        remark = f"@{email}"
+                        logger.info(f"Falling back to random suffix, using email {email}")
+
                     client_email = email
                     logger.info(f"Random server name generated: {email} (serial={server_serial})")
 

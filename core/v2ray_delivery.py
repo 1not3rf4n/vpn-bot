@@ -257,7 +257,17 @@ async def send_individual_configs_delivery(
     )
     if usage_info:
         intro += f"\n\n{usage_info}"
-    await bot.send_message(chat_id, intro, parse_mode="HTML")
+
+    # Provide a "copy all" quick button when multiple configs exist
+    keys = []
+    try:
+        if len(links) > 1:
+            all_text = "\n".join(links)
+            keys = [[InlineKeyboardButton("📋 کپی همه کانفیگ‌ها", copy_text=CopyTextButton(text=all_text))]]
+    except Exception:
+        keys = []
+
+    await bot.send_message(chat_id, intro, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
 
     for i, link in enumerate(links, 1):
         remark = extract_remark_from_link(link) if link and "#" in link else f"سرور {i}"
