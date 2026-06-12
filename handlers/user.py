@@ -206,9 +206,7 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
 
         # Modern styled start text
         start_text = await settings.get_setting("start_message", "به ربات خوش آمدید.")
-        start_title = "🌐 خوش‌آمدگویی به پنل خدمات VPN"
-        start_hint = "با طراحی شیک و دسترسی ساده؛ سرویس‌ها، کیف‌پول و پشتیبانی در دسترس شماست."
-        composed_caption = f"<b>{start_title}</b>\n\n{escape(start_text)}\n\n<i>{start_hint}</i>"
+        composed_caption = f"<b>{start_text}</b>\n</i>"
         
         shop_en = await settings.get_setting("menu_shop", "on")
         wallet_en = await settings.get_setting("menu_wallet", "on")
