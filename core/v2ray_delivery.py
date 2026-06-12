@@ -165,6 +165,11 @@ async def fetch_subscription_configs(sub_url: str) -> list[str]:
         line = line.strip()
         if line.startswith(V2RAY_PREFIXES):
             links.append(line)
+
+    logger.info(f"Subscription fetch: total_lines={len(decoded.splitlines())}, valid_configs={len(links)}, url={sub_url[:80]}")
+    if len(links) > 0:
+        logger.info(f"Config sample: {links[0][:100]}")
+
     return links
 
 
