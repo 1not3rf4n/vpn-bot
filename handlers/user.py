@@ -364,12 +364,13 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         bg_url = await settings.get_setting("menu_background_url", "")
         try:
             if bg_url:
-                # Send photo as header then the keyboard message for compatibility
                 try:
                     await message.chat.send_photo(photo=bg_url, caption=composed_caption, parse_mode="HTML")
                 except Exception:
-                    # Fallback to simple text if photo fails
-                    await message.chat.send_message(composed_caption, parse_mode="HTML")
+                    try:
+                        await message.chat.send_photo(photo=bg_url)
+                    except Exception:
+                        await message.chat.send_message(composed_caption, parse_mode="HTML")
                 await message.chat.send_message("برای ادامه از دکمه‌های زیر استفاده کنید:", reply_markup=reply_markup)
                 return
         except Exception:

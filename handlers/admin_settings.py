@@ -186,16 +186,21 @@ async def req_bg_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur = await get_setting("menu_background_url", "")
     await query.message.reply_text(
         f"لینک فعلی تصویر پس‌زمینه:\n{cur}\n\n"
-        "لطفاً لینک جدید تصویر را ارسال کنید (برای حذف تصویر کلمه off را بفرستید):",
+        "لینک جدید را ارسال کنید، یا مستقیماً عکس بفرستید (برای حذف: off):",
         reply_markup=InlineKeyboardMarkup(CANCEL_BTN),
     )
     return EDIT_BG_URL
 
 
 async def save_bg_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    val = (update.message.text or "").strip()
-    if val.lower() == "off":
-        val = ""
+    val = ""
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        val = photo.file_id
+    else:
+        val = (update.message.text or "").strip()
+        if val.lower() == "off":
+            val = ""
     await set_setting("menu_background_url", val)
     await update.message.reply_text("✅ تصویر پس‌زمینه منو ذخیره شد.")
     await settings_panel(update, context)
