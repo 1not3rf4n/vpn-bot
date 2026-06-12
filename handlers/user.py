@@ -24,6 +24,138 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEFAULT_TYPE, service: Service, action: str):
+    """Handle service delivery actions from text buttons (sub/cfg/server)."""
+    await update.message.chat.send_message("⏳ در حال آماده‌سازی...")
+
+    async with AsyncSessionLocal() as session:
+        svc = await session.get(Service, service.id)
+        if not svc:
+            await update.message.reply_text("❌ سرویس یافت نشد.")
+            return
+
+        # Get user for product name
+        user_db = (await session.execute(select(User).where(User.telegram_id == update.effective_user.id))).scalars().first()
+        product_name = "سرویس V2RAY"
+        if svc.panel_username and "#SUB-" in svc.panel_username:
+            try:
+                oid = int(svc.panel_username.replace("#SUB-", ""))
+                order = (await session.execute(select(Order).where(Order.id == oid))).scalars().first()
+                if order and order.product_id:
+                    prod = (await session.execute(select(Product).where(Product.id == order.product_id))).scalars().first()
+                    if prod:
+                        product_name = prod.name
+            except Exception:
+                pass
+
+        sub_code = extract_sub_code(svc.panel_username)
+        direct = extract_direct_link(svc.config_link)
+        meta = parse_service_meta(svc.config_link)
+        client_email = meta.get("email", "")
+
+        if not client_email:
+            pn = svc.panel_username or ""
+            if pn and not pn.startswith("#SUB-"):
+                client_email = pn
+            elif direct and "#" in direct:
+                try:
+                    from urllib.parse import unquote
+                    remark_in_link = unquote(direct.split("#", 1)[1])
+                    client_email = remark_in_link.lstrip("@")
+                except Exception:
+                    pass
+
+        panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+
+        if not panel_db:
+            await update.message.reply_text("❌ پنل متصل نیست. به پشتیبانی پیام دهید.")
+            return
+
+        sub_path = await settings.get_setting("xui_sub_path", "/sub/")
+        xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+        display_remark = meta.get("remark", "")
+
+        exp_date = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"
+        days_left = max(0, (svc.expire_date - datetime.now()).days) if svc.expire_date else "نامحدود"
+        usage_str = ""
+
+        try:
+            client_stats = await xui.get_all_client_stats()
+            if client_stats and client_email:
+                for cs in client_stats:
+                    if cs.get("email") == client_email:
+                        total = cs.get("total", 0) // (1024**3)
+                        used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)
+                        usage_str = f"📊 استفاده: {used}/{total}GB | ⏳ {days_left} روز" if total > 0 else f"📊 مصرف شده: {used}GB | ⏳ {days_left} روز"
+                        break
+        except Exception:
+            pass
+
+        chat_id = update.effective_chat.id
+
+        if action == "server":
+            if direct:
+                qr = make_qr_bytes(direct)
+                caption = f"🔗 <b>لینک سرور</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{direct}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک را کپی کنید"
+                await context.bot.send_photo(
+                    chat_id,
+                    photo=InputFile(qr, filename="qr.png"),
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(copy_button_row(direct, "📋 کپی لینک")),
+                )
+            await xui.close()
+            return
+
+        if action == "sub":
+            sub_url = xui.build_subscription_url(client_email, sub_path)
+            qr = make_qr_bytes(sub_url)
+            caption = f"🔗 <b>لینک ساب</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{sub_url}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک ساب را کپی کنید"
+            await context.bot.send_photo(
+                chat_id,
+                photo=InputFile(qr, filename="qr.png"),
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(copy_button_row(sub_url, "📋 کپی لینک ساب")),
+            )
+            await xui.close()
+            return
+
+        if action == "cfg":
+            links = []
+            if client_email:
+                sub_url = xui.build_subscription_url(client_email, sub_path)
+                links = await fetch_subscription_configs(sub_url)
+            if not links and direct:
+                links = [direct]
+
+            if display_remark:
+                links = [apply_remark_to_link(l, display_remark) for l in links]
+            if not links and svc.config_link:
+                for line in svc.config_link.split("\n"):
+                    line = line.strip()
+                    if line.startswith(("vless://", "vmess://", "trojan://", "ss://")):
+                        links.append(line)
+
+            await xui.close()
+
+            try:
+                usage_info = f"📅 انقضا: {exp_date}"
+                if usage_str:
+                    usage_info += f"\n{usage_str}"
+                await send_individual_configs_delivery(
+                    context.bot, chat_id,
+                    links=links, sub_code=sub_code, product_name=product_name,
+                    usage_info=usage_info,
+                )
+            except Exception as e:
+                logger.error(f"Config delivery failed: {e}")
+                await update.message.reply_text("❌ خطا در ارسال کانفیگ‌ها. دوباره تلاش کنید.")
+            return
+
+        await xui.close()
+
+
 async def _resolve_service_for_delivery(session, service_id: int, telegram_id: int):
     user_db = (await session.execute(select(User).where(User.telegram_id == telegram_id))).scalars().first()
     if not user_db:
@@ -267,27 +399,27 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    
+
     if not await check_forced_join(update, context):
         await query.answer("لطفا در کانال ما عضو شوید.", show_alert=True)
         return
-        
+
     await query.answer()
     user_id = update.effective_user.id
-    
+
     if query.data == "start_menu":
         await send_start_menu(query.message, update.effective_user, update, context, is_edit=True)
-        
+
     elif query.data == "wallet":
         from handlers.wallet import wallet_menu
         await wallet_menu(update, context)
-        
+
     elif query.data == "back_to_free_list":
         await back_to_free_list(update, context)
-        
+
     elif query.data.startswith("free_select_"):
         await free_config_detail_handler(update, context)
-        
+
     elif query.data == "my_referral":
         bot_un = context.bot.username
         link = f"https://t.me/{bot_un}?start={user_id}"
@@ -295,91 +427,87 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
         text = f"🎁 **طرح درآمدزایی و تخفیف**\n\nشما با دعوت از دوستان خود از طریق لینک زیر، {prc} درصد از مبلغ تمامی خریدهای آن‌ها را مستقیما به عنوان موجودی قابل برداشت یا خرید دریافت می‌کنید!\n\n🔗 لینک اختصاصی شما:\n`{link}`"
         kb = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-        
+
     elif query.data == "my_services":
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(User).where(User.telegram_id == user_id))
             db_user = result.scalars().first()
-            
+
             result = await session.execute(select(Service).where(Service.user_id == db_user.id).order_by(Service.id.desc()))
             services = result.scalars().all()
-            
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
-            
+
             if not services:
                 text = "🌐 <b>سرویس‌های من</b>\n\nشما هیچ سرویس فعالی ندارید!"
-            else:
-                panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
-                client_stats = []
-                if panel_db:
-                    xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
-                    try:
-                        client_stats = await xui.get_all_client_stats()
-                    except Exception:
-                        pass
-                
-                text = "🌐 <b>سرویس‌های من</b>\n\n"
-                for idx, s in enumerate(services, 1):
-                    exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
-                    status_emoji = "✅" if s.status == "ACTIVE" else "❌"
-                    svc_meta = parse_service_meta(s.config_link)
-                    p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
-                    email = svc_meta.get("email", "")
+                kb = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                return
 
-                    usage_str = ""
-                    if client_stats and email:
-                        for cs in client_stats:
-                            if cs.get("email") == email:
-                                total = cs.get("total", 0) // (1024**3)
-                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)
-                                usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
-                                break
+            panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+            client_stats = []
+            if panel_db:
+                xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+                try:
+                    client_stats = await xui.get_all_client_stats()
+                except Exception:
+                    pass
 
-                    if s.expire_date:
-                        days_left = (s.expire_date - datetime.now()).days
-                        usage_str += f" | ⏳ {max(0, days_left)} روز"
+            # Build text display with service cards
+            text = "🌐 <b>سرویس‌های من</b>\n\n"
+            keyboard = []
 
-                    # Glass-style card header per service
-                    text += f"┏━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
-                    text += f"🔹 <b>{p_name}</b>    {status_emoji}\n"
-                    text += f"📅 انقضا: {exp}    {usage_str}\n"
-                    text += f"┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n"
+            for idx, s in enumerate(services, 1):
+                exp = s.expire_date.strftime("%Y-%m-%d") if s.expire_date else "نامحدود"
+                status_emoji = "✅" if s.status == "ACTIVE" else "❌"
+                svc_meta = parse_service_meta(s.config_link)
+                p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
+                email = svc_meta.get("email", "")
 
-                    link_part = extract_direct_link(s.config_link)
+                usage_str = ""
+                if client_stats and email:
+                    for cs in client_stats:
+                        if cs.get("email") == email:
+                            total = cs.get("total", 0) // (1024**3)
+                            used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)
+                            usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
+                            break
 
-                    # Try to collect all links for this service (subscription URL or direct link)
-                    links = []
-                    try:
-                        if panel_db and email:
-                            sub_path = await settings.get_setting("xui_sub_path", "/sub/")
-                            try:
-                                sub_url = xui.build_subscription_url(email, sub_path)
-                                links = await fetch_subscription_configs(sub_url)
-                            except Exception:
-                                links = []
-                    except Exception:
-                        links = []
+                days_left = "نامحدود"
+                if s.expire_date:
+                    days_left_val = max(0, (s.expire_date - datetime.now()).days)
+                    days_left = str(days_left_val)
 
-                    if not links and link_part:
-                        links = [link_part]
+                # Glass-style card
+                text += f"┏━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+                text += f"🔹 <b>{p_name}</b>    {status_emoji}\n"
+                text += f"📅 انقضا: {exp}\n"
+                if usage_str:
+                    text += f"{usage_str}  |  ⏳ {days_left} روز\n"
+                else:
+                    text += f"⏳ {days_left} روز\n"
+                text += f"┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n"
 
-                    # Build button row: copy all, link server, copy link, sub, configs, usage, renew
-                    row = []
-                    if links and len(links) > 1:
-                        all_text = "\n".join(links)
-                        row.append(InlineKeyboardButton("📋 کپی همه", copy_text=CopyTextButton(text=all_text)))
-                    if link_part:
-                        row.append(InlineKeyboardButton("🔗 لینک سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
-                        row.append(InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link_part)))
-                    if s.status == "ACTIVE":
-                        row.append(InlineKeyboardButton("🔗 لینک ساب", callback_data=f"v2del_sub_{s.id}"))
-                        row.append(InlineKeyboardButton("🎯 کانفیگ‌ها", callback_data=f"v2del_cfg_{s.id}"))
-                        row.append(InlineKeyboardButton("🔁 تمدید", callback_data=f"renew_{s.id}"))
-                    if row:
-                        keyboard.append(row)
-            
-            keyboard.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")])
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+                # Add buttons only for active services
+                if s.status == "ACTIVE":
+                    keyboard.append([
+                        KeyboardButton(f"🔗 ساب #{idx}"),
+                        KeyboardButton(f"🎯 کانفیگ #{idx}"),
+                        KeyboardButton(f"🔁 تمدید #{idx}")
+                    ])
+
+            keyboard.append([KeyboardButton("🔙 بازگشت")])
+
+            # Delete and resend with ReplyKeyboardMarkup
+            try:
+                await query.message.delete()
+            except:
+                pass
+
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+                parse_mode="HTML"
+            )
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
@@ -443,11 +571,43 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif "سرویس‌ها" in text:
         user_id = update.effective_user.id
+
+        # Parse service action buttons (e.g., "🔗 ساب #1", "🎯 کانفیگ #1", "🔁 تمدید #1")
+        if text.startswith("🔗 ساب #") or text.startswith("🎯 کانفیگ #") or text.startswith("🔁 تمدید #"):
+            try:
+                svc_idx = int(text.split("#")[1])
+                async with AsyncSessionLocal() as session:
+                    user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
+                    services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
+
+                    if svc_idx <= 0 or svc_idx > len(services):
+                        await update.message.reply_text("❌ سرویس نامعتبر")
+                        return
+
+                    service = services[svc_idx - 1]
+
+                    if text.startswith("🔗 ساب"):
+                        await handle_v2ray_delivery_action(update, context, service, "sub")
+                    elif text.startswith("🎯 کانفیگ"):
+                        await handle_v2ray_delivery_action(update, context, service, "cfg")
+                    elif text.startswith("🔁 تمدید"):
+                        # Renew action - to be handled elsewhere
+                        await update.message.reply_text("🔁 قابلیت تمدید در حال توسعه")
+            except Exception as e:
+                logger.error(f"Error parsing service button: {e}")
+                await update.message.reply_text("❌ خطای پردازش")
+            return
+
+        if text == "🔙 بازگشت":
+            await send_start_menu(update.message, update.effective_user, update, context)
+            return
+
+        # Original services display
         async with AsyncSessionLocal() as session:
             from database.models import Order
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
-            
+
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
             client_stats = []
             if panel_db:
@@ -456,10 +616,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     client_stats = await xui.get_all_client_stats()
                 except Exception:
                     pass
-            
+
             msg = "🌐 <b>سرویس‌های من</b>\n\n"
-            keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data="start_menu")]]
-            
+            keyboard = []
+
             if not services:
                 msg += "شما هیچ سرویس فعالی ندارید!"
             else:
@@ -479,50 +639,30 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
                                 break
 
+                    days_left = "نامحدود"
                     if s.expire_date:
                         days_left_val = max(0, (s.expire_date - datetime.now()).days)
-                        usage_str += f" | ⏳ {days_left_val} روز"
+                        days_left = str(days_left_val)
 
                     # Glass-style card per service
                     msg += "┏━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
                     msg += f"🔹 <b>{p_name}</b>    {status_emoji}\n"
-                    msg += f"📅 انقضا: {exp}    {usage_str}\n"
+                    msg += f"📅 انقضا: {exp}\n"
+                    if usage_str:
+                        msg += f"{usage_str}  |  ⏳ {days_left} روز\n"
+                    else:
+                        msg += f"⏳ {days_left} روز\n"
                     msg += "┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n"
 
-                    link_part = extract_direct_link(s.config_link)
-
-                    # Try to collect links for copy-all
-                    links = []
-                    try:
-                        if panel_db and email:
-                            sub_path = await settings.get_setting("xui_sub_path", "/sub/")
-                            try:
-                                sub_url = xui.build_subscription_url(email, sub_path)
-                                links = await fetch_subscription_configs(sub_url)
-                            except Exception:
-                                links = []
-                    except Exception:
-                        links = []
-
-                    if not links and link_part:
-                        links = [link_part]
-
-                    row = []
-                    if links and len(links) > 1:
-                        all_text = "\n".join(links)
-                        row.append(InlineKeyboardButton("📋 کپی همه", copy_text=CopyTextButton(text=all_text)))
-                    if link_part:
-                        row.append(InlineKeyboardButton("🔗 لینک سرور", callback_data=f"v2del_server_{idx}_{s.id}"))
-                        row.append(InlineKeyboardButton("📋 کپی لینک", copy_text=CopyTextButton(text=link_part)))
                     if s.status == "ACTIVE":
-                        row.append(InlineKeyboardButton("🔗 لینک ساب", callback_data=f"v2del_sub_{s.id}"))
-                        row.append(InlineKeyboardButton("🎯 کانفیگ‌ها", callback_data=f"v2del_cfg_{s.id}"))
-                        row.append(InlineKeyboardButton("🔁 تمدید", callback_data=f"renew_{s.id}"))
-                    if row:
-                        keys.append(row)
-            
-            keys.append([InlineKeyboardButton("🔄 تازه‌سازی", callback_data="my_services")])
-            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
+                        keyboard.append([
+                            KeyboardButton(f"🔗 ساب #{idx}"),
+                            KeyboardButton(f"🎯 کانفیگ #{idx}"),
+                            KeyboardButton(f"🔁 تمدید #{idx}")
+                        ])
+
+            keyboard.append([KeyboardButton("🔙 بازگشت")])
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
             
     elif "مدیریت" in text:
         from handlers.admin import admin_panel
