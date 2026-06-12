@@ -73,6 +73,8 @@ async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEF
 
         sub_path = await settings.get_setting("xui_sub_path", "/sub/")
         xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+        # Use subscription ID from metadata if available, fallback to email
+        sub_id = meta.get("sub_id", "") or client_email
         display_remark = meta.get("remark", "")
 
         exp_date = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"
@@ -108,7 +110,7 @@ async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEF
             return
 
         if action == "sub":
-            sub_url = xui.build_subscription_url(client_email, sub_path)
+            sub_url = xui.build_subscription_url(sub_id, sub_path)
             qr = make_qr_bytes(sub_url)
             caption = f"🔗 <b>لینک ساب</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{sub_url}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک ساب را کپی کنید"
             await context.bot.send_photo(
@@ -123,8 +125,8 @@ async def handle_v2ray_delivery_action(update: Update, context: ContextTypes.DEF
 
         if action == "cfg":
             links = []
-            if client_email:
-                sub_url = xui.build_subscription_url(client_email, sub_path)
+            if sub_id:
+                sub_url = xui.build_subscription_url(sub_id, sub_path)
                 links = await fetch_subscription_configs(sub_url)
             if not links and direct:
                 links = [direct]
@@ -226,7 +228,8 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
 
         sub_path = await settings.get_setting("xui_sub_path", "/sub/")
         xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
-        sub_id = client_email
+        # Use subscription ID from metadata if available, fallback to email
+        sub_id = meta.get("sub_id", "") or client_email
         display_remark = meta.get("remark", "")
 
         exp_date = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"

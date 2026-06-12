@@ -275,7 +275,8 @@ class XUIApi:
         expiry_time = int((time.time() + (expire_days * 86400)) * 1000) if expire_days > 0 else 0
         total_bytes = int(total_gb * 1073741824) if total_gb > 0 else 0
         flow = self._inbound_needs_flow(inbound) if inbound else ""
-        sub_id = email
+        # Let X-UI panel generate subId automatically (don't specify it)
+        sub_id = ""
 
         strategies = [
             self._add_client_panel_inbound,
@@ -429,6 +430,33 @@ class XUIApi:
             except Exception as e:
                 logger.debug(f"get_client_links {path}: {e}")
         return []
+
+    async def get_client_subscription_id(self, inbound_id: int, email: str) -> str | None:
+        """Get subscription ID (subId) for a client from the panel."""
+        if not self.logged_in and not await self.login():
+            return None
+
+        email = _sanitize_email(email)
+        try:
+            # Refresh inbound data to get latest client info
+            inbound = await self.get_inbound(inbound_id)
+            if not inbound:
+                logger.warning(f"Could not get inbound {inbound_id}")
+                return None
+
+            # Look through clientStats to find matching email
+            for client_stat in inbound.get("clientStats", []):
+                if client_stat.get("email") == email:
+                    sub_id = client_stat.get("subId")
+                    if sub_id:
+                        logger.info(f"Found subscription ID for {email}: {sub_id}")
+                        return str(sub_id)
+
+            logger.warning(f"Client stats not found for email {email} in inbound {inbound_id}")
+        except Exception as e:
+            logger.warning(f"Error getting client subscription ID: {e}")
+
+        return None
 
     async def build_direct_link(self, inbound_id: int, client_uuid: str, remark: str):
         inbound = await self.get_inbound(inbound_id)
