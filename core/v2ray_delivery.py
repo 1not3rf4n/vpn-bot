@@ -224,7 +224,7 @@ async def send_subscription_delivery(
 
 
 async def send_individual_configs_delivery(
-    bot, chat_id: int, *, links: list[str], sub_code: str, product_name: str
+    bot, chat_id: int, *, links: list[str], sub_code: str, product_name: str, usage_info: str = ""
 ):
     if not links:
         await bot.send_message(
@@ -240,6 +240,8 @@ async def send_individual_configs_delivery(
         f"📊 تعداد: <b>{len(links)}</b> کانفیگ\n\n"
         f"در پیام‌های بعدی هر کانفیگ با QR ارسال می‌شود ⬇️"
     )
+    if usage_info:
+        intro += f"\n\n{usage_info}"
     await bot.send_message(chat_id, intro, parse_mode="HTML")
 
     for i, link in enumerate(links, 1):

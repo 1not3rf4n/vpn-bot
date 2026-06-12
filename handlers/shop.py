@@ -573,6 +573,7 @@ async def save_custom_server_name(update: Update, context: ContextTypes.DEFAULT_
     order_id = context.user_data.get('provision_order_id')
     
     if order_id:
+        await update.message.reply_text("⏳ در حال ساخت سرور، لطفا صبر کنید...")
         from core.provision import provision_order_and_notify
         await provision_order_and_notify(order_id, context.bot, custom_server_name=name)
     

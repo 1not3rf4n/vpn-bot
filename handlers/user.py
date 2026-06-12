@@ -55,8 +55,11 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await query.answer("در حال آماده‌سازی...")
 
-    is_sub = query.data.startswith("v2del_sub_")
-    svc_id = int(query.data.split("_")[-1])
+    parts = query.data.split("_")
+    action = parts[1]  # server, cfg, or sub
+    # For v2del_server_{idx}_{svc_id}, svc_id is the last part
+    # For v2del_sub_{svc_id} or v2del_cfg_{svc_id}, svc_id is the last part
+    svc_id = int(parts[-1])
     chat_id = update.effective_chat.id
 
     async with AsyncSessionLocal() as session:
@@ -71,6 +74,7 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         client_email = meta.get("email", "")
 
         panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+
         if not panel_db:
             await query.message.reply_text("❌ پنل متصل نیست. به پشتیبانی پیام دهید.")
             return
@@ -80,13 +84,32 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         sub_id = client_email
         display_remark = meta.get("remark", "")
 
-        if is_sub:
+        exp_date = svc.expire_date.strftime("%Y-%m-%d") if svc.expire_date else "نامحدود"
+        days_left = max(0, (svc.expire_date - datetime.now()).days) if svc.expire_date else "نامحدود"
+        usage_str = ""
+
+        # Get usage stats
+        try:
+            client_stats = await xui.get_all_client_stats()
+            if client_stats and client_email:
+                for cs in client_stats:
+                    if cs.get("email") == client_email:
+                        total = cs.get("total", 0) // (1024**3)
+                        used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)
+                        usage_str = f"📊 استفاده: {used}/{total}GB | ⏳ {days_left} روز" if total > 0 else f"📊 مصرف شده: {used}GB | ⏳ {days_left} روز"
+                        break
+        except Exception:
+            pass
+
+        if action == "server":
+            # Show individual server link with QR
             if direct:
                 qr = make_qr_bytes(direct)
+                caption = f"🔗 <b>لینک سرور</b>\n\n📅 انقضا: {exp_date}\n{usage_str}\n\n<code>{direct}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک را کپی کنید"
                 await context.bot.send_photo(
                     chat_id,
                     photo=InputFile(qr, filename="qr.png"),
-                    caption=f"🔗 <b>لینک سرور</b>\n\n<code>{direct}</code>\n\nمی‌توانید QR را اسکن کنید یا لینک را کپی کنید",
+                    caption=caption,
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(copy_button_row(direct, "📋 کپی لینک")),
                 )
@@ -95,13 +118,13 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
             await xui.close()
             return
 
+        # For cfg action - fetch all individual configs from subscription
         links = []
         if sub_id:
             sub_url = xui.build_subscription_url(sub_id, sub_path)
             links = await fetch_subscription_configs(sub_url)
         if not links and direct:
             links = [direct]
-        await xui.close()
 
         if display_remark:
             links = [apply_remark_to_link(l, display_remark) for l in links]
@@ -111,10 +134,16 @@ async def handle_v2ray_delivery(update: Update, context: ContextTypes.DEFAULT_TY
                 if line.startswith(("vless://", "vmess://", "trojan://", "ss://")):
                     links.append(line)
 
+        await xui.close()
+
         try:
+            usage_info = f"📅 انقضا: {exp_date}"
+            if usage_str:
+                usage_info += f"\n{usage_str}"
             await send_individual_configs_delivery(
                 context.bot, chat_id,
                 links=links, sub_code=sub_code, product_name=product_name,
+                usage_info=usage_info,
             )
         except Exception as e:
             logger.error(f"Config delivery failed: {e}")
@@ -240,7 +269,6 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
             if not services:
                 text = "🌐 <b>سرویس‌های من</b>\n\nشما هیچ سرویس فعالی ندارید!"
             else:
-                # Fetch panel for usage stats
                 panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
                 client_stats = []
                 if panel_db:
@@ -258,17 +286,15 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                     p_name = escape(svc_meta.get("remark") or s.panel_username or "سرویس متفرقه")
                     email = svc_meta.get("email", "")
 
-                    # Get usage stats from panel
                     usage_str = ""
                     if client_stats and email:
                         for cs in client_stats:
                             if cs.get("email") == email:
-                                total = cs.get("total", 0) // (1024**3)  # GB
-                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)  # GB
+                                total = cs.get("total", 0) // (1024**3)
+                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)
                                 usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
                                 break
 
-                    # Days remaining calculation
                     if s.expire_date:
                         days_left = (s.expire_date - datetime.now()).days
                         usage_str += f" | ⏳ {max(0, days_left)} روز"
@@ -281,11 +307,13 @@ async def user_dashboard_callbacks(update: Update, context: ContextTypes.DEFAULT
                     text += "➖➖➖➖➖➖\n"
                     
                     link_part = extract_direct_link(s.config_link)
+                    # Add buttons for this service
                     if link_part:
+                        keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک سرور #{idx}", callback_data=f"v2del_server_{idx}_{s.id}")])
                         keyboard.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
-                    # Add sub button if we can build subscription
+                    # Add subscription config button for active services
                     if s.status == "ACTIVE":
-                        keyboard.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
+                        keyboard.insert(-2, [InlineKeyboardButton(f"📲 کانفیگ‌های ساب #{idx}", callback_data=f"v2del_cfg_{s.id}")])
 
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
@@ -356,7 +384,6 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
             services = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().all()
             
-            # Fetch panel for usage stats
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
             client_stats = []
             if panel_db:
@@ -383,12 +410,11 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if client_stats and email:
                         for cs in client_stats:
                             if cs.get("email") == email:
-                                total = cs.get("total", 0) // (1024**3)  # GB
-                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)  # GB
+                                total = cs.get("total", 0) // (1024**3)
+                                used = (cs.get("up", 0) + cs.get("down", 0)) // (1024**3)
                                 usage_str = f"📊 استفاده: {used}/{total}GB" if total > 0 else f"📊 مصرف شده: {used}GB"
                                 break
 
-                    # Days remaining calculation
                     if s.expire_date:
                         days_left_val = max(0, (s.expire_date - datetime.now()).days)
                         usage_str += f" | ⏳ {days_left_val} روز"
@@ -402,9 +428,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     link_part = extract_direct_link(s.config_link)
                     if link_part:
+                        keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک سرور #{idx}", callback_data=f"v2del_server_{idx}_{s.id}")])
                         keys.insert(-2, [InlineKeyboardButton(f"📋 کپی سرور #{idx}", copy_text=CopyTextButton(text=link_part))])
                     if s.status == "ACTIVE":
-                        keys.insert(-2, [InlineKeyboardButton(f"🔗 لینک ساب #{idx}", callback_data=f"v2del_sub_{s.id}")])
+                        keys.insert(-2, [InlineKeyboardButton(f"📲 کانفیگ‌های ساب #{idx}", callback_data=f"v2del_cfg_{s.id}")])
             
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keys) if keys else None)
             
