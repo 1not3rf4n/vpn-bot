@@ -343,7 +343,10 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         if shop_en == "on":
             keyboard.append([KeyboardButton("🛒 فروشگاه")])
             
-        row_2 = [KeyboardButton("🌐 سرویس‌ها"), KeyboardButton("👤 حساب کاربری")]
+        # Second row: Services and Test Server (test replaces account here)
+        row_2 = [KeyboardButton("🌐 سرویس‌ها")]
+        if test_en == "on":
+            row_2.append(KeyboardButton("🧪 سرور تست"))
         keyboard.append(row_2)
         
         row_3 = []
@@ -351,14 +354,13 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         row_3.append(KeyboardButton("📞 پشتیبانی"))
         keyboard.append(row_3)
         
-        keyboard.append([KeyboardButton("🎁 رفرال گیری")])
+        # Referral row now includes account button per request
+        keyboard.append([KeyboardButton("🎁 رفرال گیری"), KeyboardButton("👤 حساب کاربری")])
         
         if free_en == "on":
             keyboard.append([KeyboardButton("❤️‍🔥 کانفیگ رایگان")])
         
-        if test_en == "on":
-            keyboard.append([KeyboardButton("🧪 سرور تست")])
-        
+        # Note: test button already placed in row_2 when enabled; avoid duplicate
         if is_admin:
             keyboard.append([KeyboardButton("⚙️ پنل مدیریت")])
             
@@ -773,9 +775,11 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else:
                         sub_id = await xui.get_client_subscription_id(inb, server_name)
                         sub_path = await settings.get_setting('xui_sub_path', '/sub/')
-                        if sub_id:
-                            cfg = xui.build_subscription_url(sub_id, sub_path)
-                        else:
+                        # Prefer panel_display_name (email) when building sub URL; fallback to sub_id then direct link
+                        sub_key = panel_display_name or sub_id or server_name
+                        try:
+                            cfg = xui.build_subscription_url(sub_key, sub_path)
+                        except Exception:
                             cfg = await xui.build_direct_link(inb, client_uuid, server_name)
 
                     # Derive panel display name

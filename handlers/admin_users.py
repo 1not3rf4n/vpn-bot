@@ -656,9 +656,11 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
                     # Try subscription id
                     sub_id = await xui.get_client_subscription_id(inb, server_name)
                     sub_path = await get_setting('xui_sub_path', '/sub/')
-                    if sub_id:
-                        cfg = xui.build_subscription_url(sub_id, sub_path)
-                    else:
+                    # Prefer building subscription URL using panel_display_name (email). If not available, fall back to sub_id or direct link.
+                    sub_key = panel_display_name or sub_id or server_name
+                    try:
+                        cfg = xui.build_subscription_url(sub_key, sub_path)
+                    except Exception:
                         # fallback to direct link
                         direct = await xui.build_direct_link(inb, client_uuid, server_name)
                         cfg = direct
@@ -869,7 +871,8 @@ def get_admin_users_conv_handler():
             CallbackQueryHandler(admin_search_order_start, pattern="^admin_search_order$"),
             CallbackQueryHandler(start_add_manual_svc, pattern="^adm_addsvc_"),
             CallbackQueryHandler(adm_start_msg, pattern="^adm_msg_"),
-            CallbackQueryHandler(start_send_test, pattern="^adm_send_test_"),
+            # Only start flow for exact user-start (e.g., adm_send_test_123)
+            CallbackQueryHandler(start_send_test, pattern=r"^adm_send_test_\d+$"),
             CallbackQueryHandler(adm_wal_action_start, pattern="^adm_waladd_|^adm_walsub_")
         ],
         states={
@@ -906,7 +909,7 @@ def get_admin_users_routers():
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
         CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
         CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_"),
-        CallbackQueryHandler(start_send_test, pattern="^adm_send_test_"),
+        CallbackQueryHandler(start_send_test, pattern=r"^adm_send_test_\d+$"),
         CallbackQueryHandler(admin_send_test_from_template, pattern="^adm_send_test_tpl_"),
         CallbackQueryHandler(start_send_test_custom, pattern="^adm_send_test_custom_")
     ]
