@@ -629,7 +629,10 @@ class XUIApi:
             url = url.replace(":8000", ":2096").replace(":8001", ":2096")
         parsed = urlparse(url)
         base = f"{parsed.scheme}://{parsed.netloc}"
-        return f"{base}{path}{sub_id}"
+        # Ensure sub_id is safely quoted for inclusion in URL path
+        if sub_id is None:
+            return f"{base}{path}"
+        return f"{base}{path}{quote(str(sub_id), safe='')}"
 
     async def close(self):
         await self.session.aclose()
