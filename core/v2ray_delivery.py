@@ -136,8 +136,9 @@ def build_subscription_url(panel_base_url: str, sub_id: str, sub_path: str | Non
     if not path.endswith("/"):
         path += "/"
     parsed = urlparse(panel_base_url.rstrip("/"))
-    base = f"{parsed.scheme}://{parsed.netloc}"
-    return f"{base}{path}{sub_id}"
+    base_path = parsed.path.rstrip("/") if parsed.path else ""
+    base = f"{parsed.scheme}://{parsed.netloc}{base_path}"
+    return f"{base}{path}{quote(str(sub_id), safe='')}"
 
 
 async def fetch_subscription_configs(sub_url: str) -> list[str]:
