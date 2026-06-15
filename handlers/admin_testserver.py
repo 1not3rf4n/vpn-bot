@@ -12,6 +12,11 @@ from datetime import datetime
 
 CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="admin_settings_menu")]]
 
+
+async def _noop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # placeholder async handler for ConversationHandler entry points
+    return None
+
 async def test_server_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
@@ -254,11 +259,11 @@ async def save_def_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_admin_testserver_conv_handler():
     return ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(lambda u, c: None, pattern="^test_server_menu$"),
+            CallbackQueryHandler(_noop, pattern="^test_server_menu$"),
             CallbackQueryHandler(testtpl_callbacks, pattern="^testtpl_"),
             CallbackQueryHandler(testtpl_def_callbacks, pattern="^testtpl_def_"),
-            CallbackQueryHandler(lambda u, c: None, pattern="^testtpl_manage$"),
-            CallbackQueryHandler(lambda u, c: None, pattern="^testtpl_defaults$")
+            CallbackQueryHandler(_noop, pattern="^testtpl_manage$"),
+            CallbackQueryHandler(_noop, pattern="^testtpl_defaults$")
         ],
         states={
             WAIT_TPL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_tpl_name)],

@@ -219,7 +219,8 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_server_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data['admin_prev'] = 'admin_server_info'
+    # push this view onto admin navigation stack
+    push_admin_view(context, 'admin_server_info')
     
     msg = (
         "🖥 <b>راهنمای مدیریت سرور (Ubuntu)</b>\n"
@@ -246,8 +247,10 @@ async def admin_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "admin_server_info":
         await admin_server_info(update, context)
-    elif query.data == "admin_panel" or query.data == "admin_cancel":
+    elif query.data == "admin_panel":
         await admin_panel(update, context)
+    elif query.data == "admin_cancel":
+        await cancel_admin(update, context)
     elif query.data == "admin_stats":
         await admin_stats(update, context)
     elif query.data == "admin_recent_orders":
