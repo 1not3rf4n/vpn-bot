@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler
 from sqlalchemy.future import select
 from database.models import AsyncSessionLocal, TestServerTemplate
 from core.settings import get_setting, set_setting
-from handlers.admin import push_admin_view
+from handlers.admin import push_admin_view, cancel_admin
 from datetime import datetime
 
 # Local states
@@ -13,9 +13,6 @@ from datetime import datetime
 CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="admin_settings_menu")]]
 
 
-async def _noop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # placeholder async handler for ConversationHandler entry points
-    return None
 
 async def test_server_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -259,11 +256,8 @@ async def save_def_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_admin_testserver_conv_handler():
     return ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(_noop, pattern="^test_server_menu$"),
             CallbackQueryHandler(testtpl_callbacks, pattern="^testtpl_"),
-            CallbackQueryHandler(testtpl_def_callbacks, pattern="^testtpl_def_"),
-            CallbackQueryHandler(_noop, pattern="^testtpl_manage$"),
-            CallbackQueryHandler(_noop, pattern="^testtpl_defaults$")
+            CallbackQueryHandler(testtpl_def_callbacks, pattern="^testtpl_def_")
         ],
         states={
             WAIT_TPL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_tpl_name)],
@@ -275,7 +269,7 @@ def get_admin_testserver_conv_handler():
             WAIT_DEF_DUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_def_dur)],
             WAIT_DEF_INB: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_def_inb)],
         },
-        fallbacks=[],
+        fallbacks=[CallbackQueryHandler(cancel_admin, pattern="^admin_cancel$")],
         allow_reentry=True
     )
 
