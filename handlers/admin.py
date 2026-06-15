@@ -172,6 +172,10 @@ async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from handlers.admin_users import admin_users_main_menu
             await admin_users_main_menu(update, context)
             return
+        if top == 'admin_search_user':
+            from handlers.admin_users import admin_search_user_start
+            await admin_search_user_start(update, context)
+            return
         if top == 'admin_shop':
             from handlers.admin_shop import admin_shop_nav
             await admin_shop_nav(update, context, None)

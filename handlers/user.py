@@ -761,6 +761,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with AsyncSessionLocal() as session:
                 panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
             cfg = None
+            links = []
+            panel_display_name = server_name
+            client_uuid = None
+            sub_id = None
             if panel_db:
                 xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
                 client_uuid = await xui.add_client(inb, server_name, total_gb=vol, expire_days=dur)
@@ -775,6 +779,30 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             cfg = xui.build_subscription_url(sub_id, sub_path)
                         else:
                             cfg = await xui.build_direct_link(inb, client_uuid, server_name)
+
+                    # Derive panel display name
+                    try:
+                        inbound = await xui.get_inbound(inb)
+                        client_entries = []
+                        if inbound:
+                            if isinstance(inbound.get('clients'), list):
+                                client_entries = inbound.get('clients')
+                            else:
+                                settings_raw = inbound.get('settings')
+                                if isinstance(settings_raw, str):
+                                    import json
+                                    try:
+                                        settings_js = json.loads(settings_raw)
+                                        client_entries = settings_js.get('clients') or []
+                                    except Exception:
+                                        client_entries = []
+                        for c in client_entries:
+                            if str(c.get('id')) == str(client_uuid) or str(c.get('email')) == str(server_name) or str(c.get('subId')) == str(server_name):
+                                panel_display_name = c.get('email') or c.get('subId') or c.get('remark') or panel_display_name
+                                break
+                    except Exception:
+                        pass
+
                 await xui.close()
             if not cfg:
                 from services.vpn_panel import vpn_panel
@@ -783,7 +811,36 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 s = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().first()
                 if s:
                     s.config_link = cfg
+                    s.panel_username = panel_display_name
                     await session.commit()
+
+            # Deliver to user similar to shop servers
+            try:
+                from core.v2ray_delivery import send_individual_configs_delivery, send_subscription_delivery, fetch_subscription_configs, make_qr_bytes, format_config_item_text, safe_copy_button
+                sub_code = panel_display_name or server_name
+                product_name = panel_display_name or server_name
+                usage_info = f"مدت: {dur} روز\nحجم: {vol} GB"
+
+                if cfg and isinstance(cfg, str) and cfg.startswith('http') and '/sub/' in cfg:
+                    await send_subscription_delivery(context.bot, update.effective_chat.id, sub_url=cfg, sub_code=sub_code, product_name=product_name)
+                else:
+                    # use any links we already retrieved from the panel; if none, try fetch from cfg
+                    if not links and cfg and isinstance(cfg, str) and cfg.startswith('http'):
+                        links = await fetch_subscription_configs(cfg)
+                    if links:
+                        await send_individual_configs_delivery(context.bot, update.effective_chat.id, links=links, sub_code=sub_code, product_name=product_name, usage_info=usage_info)
+                    else:
+                        if cfg:
+                            qr = make_qr_bytes(cfg)
+                            caption = format_config_item_text(1,1,cfg,product_name,usage_info)
+                            btn = safe_copy_button(cfg, "📋 کپی لینک")
+                            kb = InlineKeyboardMarkup([[btn]]) if btn else None
+                            await context.bot.send_photo(update.effective_chat.id, photo=qr, caption=caption, parse_mode='HTML', reply_markup=kb)
+                        else:
+                            await context.bot.send_message(update.effective_chat.id, f"🎁 سرور تست برای شما فعال شد: <code>{product_name}</code>\n\n{usage_info}", parse_mode='HTML')
+            except Exception as e:
+                logger.exception(f"Delivery failed: {e}")
+
         except Exception as e:
             logger.exception(f"Provisioning test server failed: {e}")
             cfg = None

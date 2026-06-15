@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 import logging
 from sqlalchemy import func, select
-from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket, TestServerAssignment
+from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket, TestServerAssignment, TestServerTemplate
 from handlers.admin import CANCEL_BTN, admin_panel, push_admin_view
 from core.settings import get_setting
 from datetime import datetime, timedelta
@@ -42,6 +42,8 @@ async def admin_users_main_menu(update: Update, context: ContextTypes.DEFAULT_TY
 async def admin_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    # push this view to support stepwise back navigation
+    push_admin_view(context, 'admin_list_users')
     page = int(query.data.split("_")[3])
     per_page = 10
     
@@ -73,6 +75,8 @@ async def admin_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    # push this view to support stepwise back navigation
+    push_admin_view(context, 'admin_search_user')
     text = "🔍 <b>جستجوی کاربر</b>\n\nلطفاً آیدی عددی کاربر و یا یوزرنیم وی را (با @ یا بدون @) ارسال کنید:"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
     return WAIT_USER_ID
@@ -112,8 +116,8 @@ async def render_user_profile(user, message_obj, context, is_edit=False):
         CANCEL_BTN[0]
     ]
     
-    # Ensure back returns to user list/search
-    push_admin_view(context, 'admin_users_menu')
+    # push profile view so cancel goes back to the previous step (e.g., search)
+    push_admin_view(context, 'admin_user_profile')
     if is_edit:
         await message_obj.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     else:
@@ -470,11 +474,61 @@ async def adm_send_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    u_id = int(query.data.split("_")[3])
+    try:
+        u_id = int(query.data.split("_")[-1])
+    except Exception:
+        await query.edit_message_text("❌ شناسه کاربر نامعتبر است.")
+        return ConversationHandler.END
+    # Show templates and custom option
+    async with AsyncSessionLocal() as session:
+        tpls = (await session.execute(select(TestServerTemplate).where(TestServerTemplate.is_active == True).order_by(TestServerTemplate.id))).scalars().all()
+    keys = []
+    for t in tpls:
+        label = f"{t.name_template} | {t.volume_gb}GB | {t.duration_days}روز"
+        keys.append([InlineKeyboardButton(label, callback_data=f"adm_send_test_tpl_{t.id}_{u_id}")])
+    keys.append([InlineKeyboardButton("⚙️ ارسال سفارشی", callback_data=f"adm_send_test_custom_{u_id}")])
+    keys.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"adm_search_back_{u_id}")])
+    text = "🚀 انتخاب قالب برای ارسال سرور تست:\n\nلطفاً یکی از قالب‌ها را انتخاب کنید یا ارسال سفارشی را انتخاب کنید:" 
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    except Exception:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    return ConversationHandler.END
+
+
+async def start_send_test_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Admin chose to send custom test server; ask for base name
+    query = update.callback_query
+    await query.answer()
+    u_id = int(query.data.split("_")[-1])
     context.user_data['tmp_test_uid'] = u_id
     keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"adm_search_back_{u_id}")]]
     await query.edit_message_text("لطفاً نام پایه برای سرور تست را وارد کنید (مثلاً: test):", reply_markup=InlineKeyboardMarkup(keys))
     return WAIT_TEST_BASE
+
+
+async def admin_send_test_from_template(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split("_")
+    # pattern: adm_send_test_tpl_{tplid}_{uid}
+    if len(parts) < 5:
+        await query.edit_message_text("شناسه قالب یا کاربر نامعتبر است.")
+        return ConversationHandler.END
+    tpl_id = int(parts[3])
+    u_id = int(parts[4])
+    async with AsyncSessionLocal() as session:
+        tpl = (await session.execute(select(TestServerTemplate).where(TestServerTemplate.id == tpl_id))).scalars().first()
+    if not tpl:
+        await query.edit_message_text("قالب پیدا نشد.")
+        return ConversationHandler.END
+    # Determine inbound id (use template or default)
+    inb = tpl.inbound_id or int(await get_setting('test_server_inbound_id', '1'))
+    base = tpl.name_template or 'test'
+    vol = float(tpl.volume_gb or 0)
+    dur = int(tpl.duration_days or 1)
+    # Provision using helper
+    return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context)
 
 async def save_test_base(update: Update, context: ContextTypes.DEFAULT_TYPE):
     base = (update.message.text or "").strip()
@@ -507,26 +561,25 @@ async def save_test_dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("شماره Inbound ID پنل را وارد کنید (مثلاً 1):", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
     return WAIT_TEST_INB
 
-async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    val = (update.message.text or "").strip()
-    if not val.isdigit():
-        await update.message.reply_text("لطفاً فقط عدد وارد کنید:")
-        return WAIT_TEST_INB
-    inb = int(val)
-
-    u_id = context.user_data.get('tmp_test_uid')
-    base = context.user_data.get('tmp_test_base')
-    vol = context.user_data.get('tmp_test_vol', 0)
-    dur = context.user_data.get('tmp_test_dur', 1)
+async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: float, dur: int, inb: int, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Helper: performs DB record creation, provisioning on panel, and delivery to the user's telegram_id.
+    # Determine reply target for admin messages
+    reply_target = update.message if getattr(update, 'message', None) else (update.callback_query.message if getattr(update, 'callback_query', None) else None)
 
     async with AsyncSessionLocal() as session:
+        # Fetch user and check one-per-user rule
+        user = (await session.execute(select(User).where(User.id == user_db_id))).scalars().first()
+        if not user:
+            if reply_target:
+                await reply_target.reply_text("❌ کاربر یافت نشد.")
+            return ConversationHandler.END
+
         # Check one-per-user rule
-        existing = (await session.execute(select(TestServerAssignment).where(TestServerAssignment.user_id == u_id))).scalars().first()
+        existing = (await session.execute(select(TestServerAssignment).where(TestServerAssignment.user_id == user_db_id))).scalars().first()
         if existing:
-            await update.message.reply_text("این کاربر قبلاً سرور تست دریافت کرده است.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
-            # Render profile again
-            user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
-            if user: await render_user_profile(user, update.message, context, is_edit=False)
+            if reply_target:
+                await reply_target.reply_text("این کاربر قبلاً سرور تست دریافت کرده است.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+                await render_user_profile(user, reply_target, context, is_edit=False)
             return ConversationHandler.END
 
         # Count existing assignments with same base to increment
@@ -539,7 +592,7 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Create DB record
         assign = TestServerAssignment(
-            user_id=u_id,
+            user_id=user_db_id,
             template_id=None,
             server_name=server_name,
             panel_id=inb,
@@ -549,7 +602,7 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Also create a Service record so bot shows it in services
         svc = Service(
-            user_id=u_id,
+            user_id=user_db_id,
             config_link=None,
             panel_username=server_name,
             status="ACTIVE",
@@ -567,9 +620,12 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with AsyncSessionLocal() as session:
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
         cfg = None
+        links = []
         if panel_db:
             xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
             client_uuid = await xui.add_client(inb, server_name, total_gb=vol, expire_days=dur)
+            panel_display_name = server_name
+            sub_id = None
             if client_uuid:
                 # Try fetch client links first
                 links = await xui.get_client_links(server_name)
@@ -585,6 +641,30 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         # fallback to direct link
                         direct = await xui.build_direct_link(inb, client_uuid, server_name)
                         cfg = direct
+
+                # Normalize panel display name by inspecting inbound client entry
+                try:
+                    inbound = await xui.get_inbound(inb)
+                    client_entries = []
+                    if inbound:
+                        if isinstance(inbound.get('clients'), list):
+                            client_entries = inbound.get('clients')
+                        else:
+                            settings = inbound.get('settings')
+                            if isinstance(settings, str):
+                                import json
+                                try:
+                                    settings_js = json.loads(settings)
+                                    client_entries = settings_js.get('clients') or []
+                                except Exception:
+                                    client_entries = []
+                    for c in client_entries:
+                        if str(c.get('id')) == str(client_uuid) or str(c.get('email')) == str(server_name) or str(c.get('subId')) == str(server_name):
+                            panel_display_name = c.get('email') or c.get('subId') or c.get('remark') or panel_display_name
+                            break
+                except Exception:
+                    pass
+
             await xui.close()
         if not cfg:
             # Fallback to generic vpn_panel mock
@@ -592,26 +672,79 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Falling back to vpn_panel for {server_name}")
             cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
 
-        # Update service with config link if possible
+        # Update service with config link and panel username if possible
         async with AsyncSessionLocal() as session:
-            s = (await session.execute(select(Service).where(Service.user_id == u_id).order_by(Service.id.desc()))).scalars().first()
+            s = (await session.execute(select(Service).where(Service.user_id == user_db_id).order_by(Service.id.desc()))).scalars().first()
             if s:
                 s.config_link = cfg
+                # set panel_username to the display name we derived if available
+                try:
+                    s.panel_username = panel_display_name
+                except Exception:
+                    s.panel_username = server_name
                 await session.commit()
+
+        # Deliver configs like shop servers: send QR, sub link or individual configs
+        try:
+            from core.v2ray_delivery import send_individual_configs_delivery, send_subscription_delivery, fetch_subscription_configs
+            sub_code = panel_display_name or server_name
+            product_name = panel_display_name or server_name
+            usage_info = f"مدت: {dur} روز\nحجم: {vol} GB"
+
+            user_chat_id = user.telegram_id
+
+            # If we have a subscription URL-like cfg, prefer subscription delivery
+            if cfg and isinstance(cfg, str) and cfg.startswith('http') and '/sub/' in cfg:
+                await send_subscription_delivery(context.bot, user_chat_id, sub_url=cfg, sub_code=sub_code, product_name=product_name)
+            else:
+                # use links we gathered earlier if any, otherwise try fetching from cfg
+                if not links and cfg and isinstance(cfg, str) and cfg.startswith('http'):
+                    links = await fetch_subscription_configs(cfg)
+
+                if links:
+                    await send_individual_configs_delivery(context.bot, user_chat_id, links=links, sub_code=sub_code, product_name=product_name, usage_info=usage_info)
+                else:
+                    # Fallback: send direct link text and QR
+                    try:
+                        from core.v2ray_delivery import make_qr_bytes, format_config_item_text
+                        if cfg:
+                            qr = make_qr_bytes(cfg)
+                            caption = format_config_item_text(1, 1, cfg, product_name, usage_info)
+                            btns = []
+                            from core.v2ray_delivery import safe_copy_button
+                            btn = safe_copy_button(cfg, "📋 کپی لینک")
+                            if btn:
+                                btns = [[btn]]
+                            await context.bot.send_photo(user_chat_id, photo=qr, caption=caption, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(btns) if btns else None)
+                        else:
+                            await context.bot.send_message(user_chat_id, f"🎁 سرور تست برای شما فعال شد: <code>{product_name}</code>\n\n{usage_info}", parse_mode='HTML')
+                    except Exception:
+                        await context.bot.send_message(user_chat_id, f"🎁 سرور تست برای شما فعال شد: <code>{product_name}</code>\n\n{usage_info}\n\nلینک کانفیگ: {cfg}", parse_mode='HTML')
+        except Exception as e:
+            logger.exception(f"Delivery failed: {e}")
+
     except Exception as e:
         logger.exception(f"Provisioning failed for {server_name}: {e}")
         cfg = None
 
-    await update.message.reply_text(f"✅ سرور تست {server_name} با موفقیت ارسال شد.")
-    # Inform user
-    try:
-        await context.bot.send_message(u_id, f"🎁 سرور تست برای شما فعال شد: <code>{server_name}</code>\nمدت: {dur} روز\nحجم: {vol} GB\nInbound: {inb}", parse_mode="HTML")
-        if cfg:
-            await context.bot.send_message(u_id, f"لینک کانفیگ: {cfg}")
-    except:
-        pass
-
+    if reply_target:
+        await reply_target.reply_text(f"✅ سرور تست {server_name} با موفقیت ارسال شد.")
     return ConversationHandler.END
+
+
+async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = (update.message.text or "").strip()
+    if not val.isdigit():
+        await update.message.reply_text("لطفاً فقط عدد وارد کنید:")
+        return WAIT_TEST_INB
+    inb = int(val)
+
+    u_id = context.user_data.get('tmp_test_uid')
+    base = context.user_data.get('tmp_test_base')
+    vol = context.user_data.get('tmp_test_vol', 0)
+    dur = context.user_data.get('tmp_test_dur', 1)
+
+    return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context)
 
 # --- Order/Subscription Search ---
 async def admin_search_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -752,5 +885,7 @@ def get_admin_users_routers():
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
         CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
         CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_"),
-        CallbackQueryHandler(start_send_test, pattern="^adm_send_test_")
+        CallbackQueryHandler(start_send_test, pattern="^adm_send_test_"),
+        CallbackQueryHandler(admin_send_test_from_template, pattern="^adm_send_test_tpl_"),
+        CallbackQueryHandler(start_send_test_custom, pattern="^adm_send_test_custom_")
     ]
