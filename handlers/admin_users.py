@@ -519,12 +519,17 @@ async def admin_send_test_from_template(update: Update, context: ContextTypes.DE
     query = update.callback_query
     await query.answer()
     parts = query.data.split("_")
-    # pattern: adm_send_test_tpl_{tplid}_{uid}
-    if len(parts) < 5:
+    # pattern expected: adm_send_test_tpl_{tplid}_{uid}
+    if len(parts) < 6:
         await query.edit_message_text("شناسه قالب یا کاربر نامعتبر است.")
         return ConversationHandler.END
-    tpl_id = int(parts[3])
-    u_id = int(parts[4])
+    try:
+        tpl_id = int(parts[-2])
+        u_id = int(parts[-1])
+    except Exception:
+        await query.edit_message_text("شناسه قالب یا کاربر نامعتبر است.")
+        return ConversationHandler.END
+
     async with AsyncSessionLocal() as session:
         tpl = (await session.execute(select(TestServerTemplate).where(TestServerTemplate.id == tpl_id))).scalars().first()
     if not tpl:
@@ -535,8 +540,16 @@ async def admin_send_test_from_template(update: Update, context: ContextTypes.DE
     base = tpl.name_template or 'test'
     vol = float(tpl.volume_gb or 0)
     dur = int(tpl.duration_days or 1)
-    # Provision using helper
-    return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context)
+
+    try:
+        return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context)
+    except Exception as e:
+        logger.exception(f"admin_send_test_from_template failed: {e}")
+        try:
+            await query.edit_message_text("❌ ارسال با خطا مواجه شد. لاگ‌ها را بررسی کنید.")
+        except Exception:
+            pass
+        return ConversationHandler.END
 
 async def save_test_base(update: Update, context: ContextTypes.DEFAULT_TYPE):
     base = (update.message.text or "").strip()
