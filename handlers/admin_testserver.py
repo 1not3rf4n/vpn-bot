@@ -10,7 +10,7 @@ from datetime import datetime
 (WAIT_TPL_NAME, WAIT_TPL_VOL, WAIT_TPL_DUR, WAIT_TPL_INB,
  WAIT_DEF_BASE, WAIT_DEF_VOL, WAIT_DEF_DUR, WAIT_DEF_INB) = range(10, 18)
 
-CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="admin_settings_menu")]]
+CANCEL_BTN = [[InlineKeyboardButton("🔙 انصراف و بازگشت", callback_data="admin_cancel")]]
 
 
 
@@ -18,7 +18,7 @@ async def test_server_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
     # push this view onto admin navigation stack
-    push_admin_view(context, 'admin_settings_menu')
+    push_admin_view(context, 'test_server_menu')
     text = "🧪 <b>مدیریت سرور تست</b>\nلطفاً یکی از موارد را انتخاب کنید:"
     keys = [
         [InlineKeyboardButton("🗂 مدیریت قالب‌ها", callback_data="testtpl_manage")],
@@ -254,10 +254,13 @@ async def save_def_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def get_admin_testserver_conv_handler():
+    # Conversation should only start for flows that expect text input. Keep simple view callbacks
+    # routed by separate routers so they don't get swallowed.
     return ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(testtpl_callbacks, pattern="^testtpl_"),
-            CallbackQueryHandler(testtpl_def_callbacks, pattern="^testtpl_def_")
+            CallbackQueryHandler(testtpl_callbacks, pattern="^testtpl_add$"),
+            CallbackQueryHandler(testtpl_callbacks, pattern="^testtpl_editfield_"),
+            CallbackQueryHandler(testtpl_def_callbacks, pattern="^testtpl_def_edit_")
         ],
         states={
             WAIT_TPL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_tpl_name)],
