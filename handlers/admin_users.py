@@ -75,7 +75,7 @@ async def admin_search_user_start(update: Update, context: ContextTypes.DEFAULT_
     text = "🔍 <b>جستجوی کاربر</b>\n\nلطفاً آیدی عددی کاربر و یا یوزرنیم وی را (با @ یا بدون @) ارسال کنید:"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")
     return WAIT_USER_ID
-async def render_user_profile(user, message_obj, is_edit=False):
+async def render_user_profile(user, message_obj, context, is_edit=False):
     async with AsyncSessionLocal() as session:
         orders = (await session.execute(select(Order).where(Order.user_id == user.id))).scalars().all()
         receipts = (await session.execute(select(Receipt).where(Receipt.user_id == user.id))).scalars().all()
@@ -133,7 +133,7 @@ async def admin_search_user_result(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text("❌ کاربری با این مشخصات در دیتابیس یافت نشد.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
             return WAIT_USER_ID
             
-    await render_user_profile(user, update.message, is_edit=False)
+    await render_user_profile(user, update.message, context, is_edit=False)
     return ConversationHandler.END
 
 async def adm_search_back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,7 +143,7 @@ async def adm_search_back_handler(update: Update, context: ContextTypes.DEFAULT_
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
         if user:
-            await render_user_profile(user, query, is_edit=True)
+            await render_user_profile(user, query, context, is_edit=True)
     return ConversationHandler.END
 
 # --- Manual Service Mgmt ---
@@ -185,7 +185,7 @@ async def save_manual_svc_dur(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     await update.message.reply_text("✅ سرویس با موفقیت قبت شد.")
     # Return to user's profile view
-    await render_user_profile(user, update.message, is_edit=True)
+    await render_user_profile(user, update.message, context, is_edit=True)
     return ConversationHandler.END
 
 async def mgmt_user_svcs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -307,7 +307,7 @@ async def do_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("✅ حذف با موفقیت انجام شد.", show_alert=True)
         async with AsyncSessionLocal() as session:
             user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
-            if user: await render_user_profile(user, query, is_edit=True)
+            if user: await render_user_profile(user, query, context, is_edit=True)
             else: await admin_panel(update, context)
     else:
         await query.answer("❌ خطا: سرویس یافت نشد.")
@@ -366,7 +366,7 @@ async def adm_wal_apply_change(update: Update, context: ContextTypes.DEFAULT_TYP
             await session.commit()
             logger.info(f"Admin {update.effective_user.id} {action}ed wallet of user {user.telegram_id} by {amount}")
             await update.message.reply_text(f"✅ با موفقیت {action} یافت.")
-            await render_user_profile(user, update.message, is_edit=False)
+            await render_user_profile(user, update.message, context, is_edit=False)
         else:
             await update.message.reply_text("کاربر یافت نشد.")
     return ConversationHandler.END
@@ -383,7 +383,7 @@ async def adm_reset_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await session.commit()
             logger.info(f"Admin {query.from_user.id} reset wallet of user {user.telegram_id}")
             await query.answer("✅ موجودی کیف پول کاربر صفر شد.", show_alert=True)
-            await render_user_profile(user, query, is_edit=True)
+            await render_user_profile(user, query, context, is_edit=True)
         else:
             await query.answer("❌ کاربر یافت نشد.")
 
@@ -460,7 +460,7 @@ async def adm_send_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("✅ پیام با موفقیت ارسال شد.")
             except Exception as e:
                 await update.message.reply_text(f"❌ ارسال پیام با خطا مواجه شد: {e}")
-            await render_user_profile(user, update.message, is_edit=False)
+            await render_user_profile(user, update.message, context, is_edit=False)
             
     return ConversationHandler.END
 
@@ -524,7 +524,7 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("این کاربر قبلاً سرور تست دریافت کرده است.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
             # Render profile again
             user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
-            if user: await render_user_profile(user, update.message, is_edit=False)
+            if user: await render_user_profile(user, update.message, context, is_edit=False)
             return ConversationHandler.END
 
         # Count existing assignments with same base to increment
