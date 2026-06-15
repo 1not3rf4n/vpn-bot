@@ -21,6 +21,8 @@ async def check_admin(user_id):
 async def settings_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
+    # allow back navigation to this settings menu
+    context.user_data['admin_prev'] = 'admin_settings_menu'
 
     text = "⚙️ <b>تنظیمات پیشرفته ربات</b>\nجهت تغییر هر یک از موارد زیر روی آن کلیک کنید:"
     keyboard = [
@@ -32,6 +34,8 @@ async def settings_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔄 تخفیف تمدید (درصد)", callback_data="set_renew_discount")],
         [InlineKeyboardButton("🖼 لینک تصویر پس‌زمینه منو", callback_data="set_bg_url")],
         [InlineKeyboardButton("🔘 مدیریت کلیدهای سراسری", callback_data="admin_global_toggles")],
+        [InlineKeyboardButton("🧪 مدیریت سرور تست", callback_data="test_server_menu")],
+        [InlineKeyboardButton("⚙️ ویرایش پیش‌فرض سرور تست", callback_data="test_server_defaults")],
         [InlineKeyboardButton("🔌 اتصال پنل (سرور V2ray)", callback_data="settings_xui_panel")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_panel")]
     ]
@@ -284,6 +288,7 @@ async def admin_global_toggles(update: Update, context: ContextTypes.DEFAULT_TYP
     free = await get_setting("menu_free_config", "on")
     renew = await get_setting("menu_renew", "on")
     custom_name = await get_setting("custom_server_name_enabled", "on")
+    test_srv = await get_setting("menu_test_server", "off")
     
     keys = [
         [InlineKeyboardButton(f"فروشگاه: {'روشن✅' if shop == 'on' else 'خاموش❌'}", callback_data="toggle_menu_shop")],
@@ -291,6 +296,7 @@ async def admin_global_toggles(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton(f"کانفیگ رایگان: {'روشن✅' if free == 'on' else 'خاموش❌'}", callback_data="toggle_menu_free_config")],
         [InlineKeyboardButton(f"تمدید سرویس‌ها: {'روشن✅' if renew == 'on' else 'خاموش❌'}", callback_data="toggle_menu_renew")],
         [InlineKeyboardButton(f"استفاده از اسم سرور دلخواه: {'روشن✅' if custom_name == 'on' else 'خاموش❌'}", callback_data="toggle_custom_server_name")],
+        [InlineKeyboardButton(f"سرور تست: {'روشن✅' if test_srv == 'on' else 'خاموش❌'}", callback_data="toggle_menu_test_server")],
         [InlineKeyboardButton("🔙 بازگشت به مدیریت", callback_data="admin_settings_menu")]
     ]
     try:

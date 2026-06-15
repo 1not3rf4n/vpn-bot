@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 from database.models import AsyncSessionLocal, FreeConfig
 from sqlalchemy.future import select
-from handlers.admin import CANCEL_BTN, admin_panel
+from handlers.admin import CANCEL_BTN, admin_panel, push_admin_view
 from datetime import datetime, timedelta
 from html import escape
 
@@ -16,6 +16,8 @@ WAIT_EDIT_VALUE = 70
 async def admin_free_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    # push this view onto admin navigation stack
+    push_admin_view(context, 'admin_free_configs')
     
     async with AsyncSessionLocal() as session:
         configs = (await session.execute(select(FreeConfig).order_by(FreeConfig.id.desc()))).scalars().all()

@@ -2,13 +2,15 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from sqlalchemy.future import select
 from database.models import AsyncSessionLocal, DiscountCode
-from handlers.admin import CANCEL_BTN, admin_panel
+from handlers.admin import CANCEL_BTN, admin_panel, push_admin_view
 
 WAIT_COUPON_CODE, WAIT_COUPON_PERCENT, WAIT_COUPON_LIMIT = range(70, 73)
 
 async def admin_discounts_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
+    # push this view onto admin navigation stack
+    push_admin_view(context, 'admin_discounts')
 
     async with AsyncSessionLocal() as session:
         res = await session.execute(select(DiscountCode))

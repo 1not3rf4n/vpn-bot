@@ -141,6 +141,28 @@ class DiscountCode(Base):
     used_count = Column(Integer, default=0)
     active = Column(Boolean, default=True)
 
+class TestServerTemplate(Base):
+    __tablename__ = 'test_server_templates'
+    id = Column(Integer, primary_key=True)
+    name_template = Column(String(100))  # base name e.g. 'test'
+    volume_gb = Column(Float, default=0)
+    duration_days = Column(Integer, default=1)
+    inbound_id = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+class TestServerAssignment(Base):
+    __tablename__ = 'test_server_assignments'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    template_id = Column(Integer, ForeignKey('test_server_templates.id'), nullable=True)
+    server_name = Column(String(150))
+    panel_id = Column(Integer, nullable=True)
+    expire_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    template = relationship("TestServerTemplate")
+
 class XUIPanel(Base):
     __tablename__ = 'xuipanels'
     id = Column(Integer, primary_key=True)

@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton, InputFile
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
-from database.models import AsyncSessionLocal, User, Category, Product, Service, Order, XUIPanel
+from database.models import AsyncSessionLocal, User, Category, Product, Service, Order, XUIPanel, TestServerAssignment
 from core.xui import XUIApi
 import core.config as config
 import core.settings as settings
@@ -336,6 +336,7 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         wallet_en = await settings.get_setting("menu_wallet", "on")
         free_en = await settings.get_setting("menu_free_config", "on")
         renew_en = await settings.get_setting("menu_renew", "on")
+        test_en = await settings.get_setting("menu_test_server", "off")
         
         keyboard = []
         if shop_en == "on":
@@ -353,6 +354,9 @@ async def send_start_menu(message, user_tg, update, context, is_edit=False, ref_
         
         if free_en == "on":
             keyboard.append([KeyboardButton("❤️‍🔥 کانفیگ رایگان")])
+        
+        if test_en == "on":
+            keyboard.append([KeyboardButton("🧪 سرور تست")])
         
         if is_admin:
             keyboard.append([KeyboardButton("⚙️ پنل مدیریت")])
@@ -716,6 +720,53 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if btn:
             keyboard.append([btn])
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        
+    elif text == "🧪 سرور تست":
+        test_en = await settings.get_setting("menu_test_server", "off")
+        if test_en != "on":
+            await update.message.reply_text("❌ سرور تست در حال حاضر غیرفعال است.")
+            return
+        user_id = update.effective_user.id
+        async with AsyncSessionLocal() as session:
+            user_db = (await session.execute(select(User).where(User.telegram_id == user_id))).scalars().first()
+            # Check one-per-user
+            existing = (await session.execute(select(TestServerAssignment).where(TestServerAssignment.user_id == user_db.id))).scalars().first()
+            if existing:
+                await update.message.reply_text("شما قبلاً سرور تست دریافت کرده‌اید.")
+                return
+
+            base = await settings.get_setting("test_server_base_name", "test")
+            vol = float(await settings.get_setting("test_server_volume_gb", "1"))
+            dur = int(await settings.get_setting("test_server_duration_days", "1"))
+            inb = int(await settings.get_setting("test_server_inbound_id", "1"))
+
+            like_pattern = f"{base}%"
+            cnt = (await session.execute(select(func.count(TestServerAssignment.id)).where(TestServerAssignment.server_name.like(like_pattern)))).scalar() or 0
+            seq = cnt + 1
+            server_name = f"{base}{seq}"
+            expire_dt = datetime.utcnow() + timedelta(days=dur)
+
+            assign = TestServerAssignment(user_id=user_db.id, template_id=None, server_name=server_name, panel_id=inb, expire_date=expire_dt)
+            session.add(assign)
+            svc = Service(user_id=user_db.id, config_link=None, panel_username=server_name, status="ACTIVE", expire_date=expire_dt)
+            session.add(svc)
+            await session.commit()
+
+        try:
+            from services.vpn_panel import vpn_panel
+            cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
+            async with AsyncSessionLocal() as session:
+                s = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().first()
+                if s:
+                    s.config_link = cfg
+                    await session.commit()
+        except Exception:
+            cfg = None
+
+        await update.message.reply_text(f"✅ سرور تست برای شما فعال شد: <code>{server_name}</code>", parse_mode="HTML")
+        if cfg:
+            await update.message.reply_text(f"لینک کانفیگ: {cfg}")
+        return
 
     elif "کانفیگ رایگان" in text:
         async with AsyncSessionLocal() as session:

@@ -3,13 +3,15 @@ from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, Call
 from core.settings import get_setting, set_setting
 from database.models import AsyncSessionLocal, CryptoNetwork
 from sqlalchemy.future import select
-from handlers.admin import CANCEL_BTN, admin_panel
+from handlers.admin import CANCEL_BTN, admin_panel, push_admin_view
 
 (WAIT_CARD, WAIT_CRYP_NAME, WAIT_CRYP_ADDR) = range(60, 63)
 
 async def admin_finance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
+    # push this view onto admin navigation stack
+    push_admin_view(context, 'admin_finance')
 
     card_stat = await get_setting("card_enabled", "on")
     crypto_stat = await get_setting("crypto_enabled", "off")

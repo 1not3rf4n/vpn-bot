@@ -30,6 +30,7 @@ async def ensure_defaults():
         "menu_wallet": "on",
         "menu_free_config": "on",
         "menu_renew": "on",
+        "menu_test_server": "off",
 
         # Custom server name feature (on/off)
         "custom_server_name_enabled": "on",
@@ -49,6 +50,11 @@ async def ensure_defaults():
         # V2RAY server naming: @zyphervpnsalle1, @zyphervpnsalle2, ...
         "v2ray_server_prefix": "zyphervpnsalle",
         "v2ray_server_serial": "0",
+        # Test server defaults
+        "test_server_base_name": "test",
+        "test_server_volume_gb": "1",
+        "test_server_duration_days": "1",
+        "test_server_inbound_id": "1",
         # UI: optional menu background image URL for a glass-style header
         "menu_background_url": "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1600&q=80",
     }

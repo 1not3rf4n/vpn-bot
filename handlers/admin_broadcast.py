@@ -17,6 +17,9 @@ async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         message = update.message
 
+    # set back navigation
+    context.user_data['admin_prev'] = 'admin_broadcast'
+
     text = "📢 <b>سیستم ارسال پیام همگانی</b>\n\nلطفاً پیام خود را (متن، عکس، ویدیو و ...) بفرستید تا برای همه کاربران ارسال شود.\n\n"
     from handlers.admin import CANCEL_BTN
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(CANCEL_BTN), parse_mode="HTML")

@@ -17,6 +17,7 @@ from handlers.admin_discounts import get_discount_conv_handler, get_discount_rou
 from handlers.wallet import get_wallet_conv_handler, verify_receipt_callback, get_wallet_routers
 from handlers.shop import get_shop_handlers
 from handlers.support import get_support_conv_handler, get_admin_support_handler, get_support_routers
+from handlers.admin_testserver import get_admin_testserver_conv_handler, get_admin_testserver_routers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -58,6 +59,7 @@ def main():
     application.add_handler(get_discount_conv_handler())
     application.add_handler(get_admin_free_conv())
     application.add_handler(get_broadcast_conv())
+    application.add_handler(get_admin_testserver_conv_handler())
     
     # Financials & Support Conversations
     application.add_handler(get_wallet_conv_handler())
@@ -86,6 +88,7 @@ def main():
     for rt in get_wallet_routers(): application.add_handler(rt)
     for rt in get_admin_free_routers(): application.add_handler(rt)
     for rt in get_admin_users_routers(): application.add_handler(rt)
+    for rt in get_admin_testserver_routers(): application.add_handler(rt)
 
     application.add_handler(CallbackQueryHandler(verify_receipt_callback, pattern="^(verify|reject)_receipt_"))
     async def log_call(update, context):

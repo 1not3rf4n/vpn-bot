@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 import logging
 from sqlalchemy import func, select
-from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket
+from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket, TestServerAssignment
 from handlers.admin import CANCEL_BTN, admin_panel
 from datetime import datetime, timedelta
 
@@ -15,9 +15,17 @@ WAIT_ORDER_SEARCH = 66
 WAIT_WAL_ADD = 67
 WAIT_WAL_SUB = 68
 
+# Test server admin flow states
+WAIT_TEST_BASE = 95
+WAIT_TEST_VOL = 96
+WAIT_TEST_DUR = 97
+WAIT_TEST_INB = 98
+
 async def admin_users_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
+    # set previous view for back navigation
+    context.user_data['admin_prev'] = 'admin_users_menu'
     
     text = "👥 <b>مدیریت کاربران</b>\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:"
     keys = [
@@ -98,10 +106,13 @@ async def render_user_profile(user, message_obj, is_edit=False):
         [InlineKeyboardButton("⚙️ مشاهده/مدیریت سرویس‌ها", callback_data=f"adm_mgsvc_{user.id}")],
         [InlineKeyboardButton("🔍 سابقه تیکت‌ها", callback_data=f"adm_tcks_{user.id}"), InlineKeyboardButton("👀 فیش‌ها", callback_data=f"adm_recs_{user.id}")],
         [InlineKeyboardButton("💬 ارسال پیام ربات", callback_data=f"adm_msg_{user.id}")],
+        [InlineKeyboardButton("🚀 ارسال سرور تست", callback_data=f"adm_send_test_{user.id}")],
         [InlineKeyboardButton("💰 مدیریت کیف پول", callback_data=f"adm_walmgmt_{user.id}")],
         CANCEL_BTN[0]
     ]
     
+    # Ensure back returns to user list/search
+    context.user_data['admin_prev'] = 'admin_users_menu'
     if is_edit:
         await message_obj.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     else:
@@ -173,8 +184,8 @@ async def save_manual_svc_dur(update: Update, context: ContextTypes.DEFAULT_TYPE
         await session.commit()
     
     await update.message.reply_text("✅ سرویس با موفقیت قبت شد.")
-    # Return to admin panel or something
-    await admin_panel(update, context)
+    # Return to user's profile view
+    await render_user_profile(user, update.message, is_edit=True)
     return ConversationHandler.END
 
 async def mgmt_user_svcs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -453,6 +464,122 @@ async def adm_send_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     return ConversationHandler.END
 
+
+# --- Send Test Server to User (admin flow) ---
+async def start_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    u_id = int(query.data.split("_")[3])
+    context.user_data['tmp_test_uid'] = u_id
+    keys = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"adm_search_back_{u_id}")]]
+    await query.edit_message_text("لطفاً نام پایه برای سرور تست را وارد کنید (مثلاً: test):", reply_markup=InlineKeyboardMarkup(keys))
+    return WAIT_TEST_BASE
+
+async def save_test_base(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    base = (update.message.text or "").strip()
+    if not base:
+        await update.message.reply_text("نام معتبر نیست. لطفاً نام پایه را وارد کنید:")
+        return WAIT_TEST_BASE
+    context.user_data['tmp_test_base'] = base
+    await update.message.reply_text("حجم ترافیک (گیگابایت) برای این تست را وارد کنید (0 = نامحدود):", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+    return WAIT_TEST_VOL
+
+async def save_test_vol(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = (update.message.text or "").strip()
+    try:
+        vol = float(val)
+    except:
+        await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
+        return WAIT_TEST_VOL
+    context.user_data['tmp_test_vol'] = vol
+    await update.message.reply_text("مدت اعتبار (تعداد روز) برای این تست را وارد کنید (مثلاً 1):", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+    return WAIT_TEST_DUR
+
+async def save_test_dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = (update.message.text or "").strip()
+    if not val.isdigit():
+        await update.message.reply_text("لطفاً تعداد روز را به صورت عدد وارد کنید:")
+        return WAIT_TEST_DUR
+    days = int(val)
+    context.user_data['tmp_test_dur'] = days
+    await update.message.reply_text("شماره Inbound ID پنل را وارد کنید (مثلاً 1):", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+    return WAIT_TEST_INB
+
+async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = (update.message.text or "").strip()
+    if not val.isdigit():
+        await update.message.reply_text("لطفاً فقط عدد وارد کنید:")
+        return WAIT_TEST_INB
+    inb = int(val)
+
+    u_id = context.user_data.get('tmp_test_uid')
+    base = context.user_data.get('tmp_test_base')
+    vol = context.user_data.get('tmp_test_vol', 0)
+    dur = context.user_data.get('tmp_test_dur', 1)
+
+    async with AsyncSessionLocal() as session:
+        # Check one-per-user rule
+        existing = (await session.execute(select(TestServerAssignment).where(TestServerAssignment.user_id == u_id))).scalars().first()
+        if existing:
+            await update.message.reply_text("این کاربر قبلاً سرور تست دریافت کرده است.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
+            # Render profile again
+            user = (await session.execute(select(User).where(User.id == u_id))).scalars().first()
+            if user: await render_user_profile(user, update.message, is_edit=False)
+            return ConversationHandler.END
+
+        # Count existing assignments with same base to increment
+        like_pattern = f"{base}%"
+        cnt = (await session.execute(select(func.count(TestServerAssignment.id)).where(TestServerAssignment.server_name.like(like_pattern)))).scalar() or 0
+        seq = cnt + 1
+        server_name = f"{base}{seq}"
+
+        expire_dt = datetime.utcnow() + timedelta(days=dur)
+
+        # Create DB record
+        assign = TestServerAssignment(
+            user_id=u_id,
+            template_id=None,
+            server_name=server_name,
+            panel_id=inb,
+            expire_date=expire_dt
+        )
+        session.add(assign)
+
+        # Also create a Service record so bot shows it in services
+        svc = Service(
+            user_id=u_id,
+            config_link=None,
+            panel_username=server_name,
+            status="ACTIVE",
+            expire_date=expire_dt
+        )
+        session.add(svc)
+        await session.commit()
+
+    # Try to provision on panel (best-effort)
+    try:
+        from services.vpn_panel import vpn_panel
+        cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
+        # Update service with config link if possible
+        async with AsyncSessionLocal() as session:
+            s = (await session.execute(select(Service).where(Service.user_id == u_id).order_by(Service.id.desc()))).scalars().first()
+            if s:
+                s.config_link = cfg
+                await session.commit()
+    except Exception:
+        cfg = None
+
+    await update.message.reply_text(f"✅ سرور تست {server_name} با موفقیت ارسال شد.")
+    # Inform user
+    try:
+        await context.bot.send_message(u_id, f"🎁 سرور تست برای شما فعال شد: <code>{server_name}</code>\nمدت: {dur} روز\nحجم: {vol} GB\nInbound: {inb}", parse_mode="HTML")
+        if cfg:
+            await context.bot.send_message(u_id, f"لینک کانفیگ: {cfg}")
+    except:
+        pass
+
+    return ConversationHandler.END
+
 # --- Order/Subscription Search ---
 async def admin_search_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -555,6 +682,7 @@ def get_admin_users_conv_handler():
             CallbackQueryHandler(admin_search_order_start, pattern="^admin_search_order$"),
             CallbackQueryHandler(start_add_manual_svc, pattern="^adm_addsvc_"),
             CallbackQueryHandler(adm_start_msg, pattern="^adm_msg_"),
+            CallbackQueryHandler(start_send_test, pattern="^adm_send_test_"),
             CallbackQueryHandler(adm_wal_action_start, pattern="^adm_waladd_|^adm_walsub_")
         ],
         states={
@@ -563,6 +691,10 @@ def get_admin_users_conv_handler():
             WAIT_SVC_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_manual_svc_text)],
             WAIT_SVC_DUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_manual_svc_dur)],
             WAIT_USER_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_send_msg)],
+            WAIT_TEST_BASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_test_base)],
+            WAIT_TEST_VOL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_test_vol)],
+            WAIT_TEST_DUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_test_dur)],
+            WAIT_TEST_INB: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_test_inb)],
             WAIT_WAL_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_wal_apply_change)],
             WAIT_WAL_SUB: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_wal_apply_change)]
         },
@@ -586,5 +718,6 @@ def get_admin_users_routers():
         CallbackQueryHandler(adm_view_user_tcks, pattern="^adm_tcks_"),
         CallbackQueryHandler(adm_view_user_recs, pattern="^adm_recs_"),
         CallbackQueryHandler(adm_search_back_handler, pattern="^adm_search_back_"),
-        CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_")
+        CallbackQueryHandler(adm_view_order_receipt, pattern="^adm_view_order_receipt_"),
+        CallbackQueryHandler(start_send_test, pattern="^adm_send_test_")
     ]

@@ -11,6 +11,9 @@ from handlers.admin import check_admin, CANCEL_BTN, admin_panel
 
 async def admin_shop_nav(update: Update, context: ContextTypes.DEFAULT_TYPE, parent_id=None):
     query = update.callback_query
+    # set back navigation to shop
+    context.user_data['admin_prev'] = 'admin_shop'
+    context.user_data['admin_shop_parent'] = parent_id
 
     async with AsyncSessionLocal() as session:
         # Fetch current category if parent_id exists

@@ -15,6 +15,31 @@ async def check_admin(user_id):
         return user and user.is_admin
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Reset admin navigation breadcrumb stack
+    context.user_data['admin_stack'] = []
+
+
+def push_admin_view(context, view_name):
+    """Push a view onto the admin navigation stack."""
+    stack = context.user_data.get('admin_stack', [])
+    stack.append(view_name)
+    context.user_data['admin_stack'] = stack
+
+
+def peek_admin_view(context):
+    """Return the current top view without modifying the stack."""
+    stack = context.user_data.get('admin_stack', [])
+    return stack[-1] if stack else None
+
+
+def pop_admin_view(context):
+    """Pop the current view and return the new top (or None)."""
+    stack = context.user_data.get('admin_stack', [])
+    if stack:
+        stack.pop()
+    context.user_data['admin_stack'] = stack
+    return stack[-1] if stack else None
+
     query = update.callback_query
     if query:
         await query.answer()
@@ -60,6 +85,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    # push this view onto the admin navigation stack
+    push_admin_view(context, 'admin_stats')
     async with AsyncSessionLocal() as session:
         from database.models import Service, Ticket, Receipt
         import sqlalchemy as sa
@@ -102,6 +129,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    push_admin_view(context, 'admin_recent_orders')
     
     async with AsyncSessionLocal() as session:
         from sqlalchemy.orm import selectinload
@@ -134,11 +162,62 @@ async def admin_recent_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cancel_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()
+    # Pop current view and route to the previous one (stepwise back)
+    top = pop_admin_view(context)
+    if top:
+        # Map known previous views to handlers
+        if top == 'admin_users_menu':
+            from handlers.admin_users import admin_users_main_menu
+            await admin_users_main_menu(update, context)
+            return
+        if top == 'admin_shop':
+            from handlers.admin_shop import admin_shop_nav
+            await admin_shop_nav(update, context, None)
+            return
+        if top == 'admin_settings_menu':
+            from handlers.admin_settings import settings_panel
+            await settings_panel(update, context)
+            return
+        if top == 'admin_free_configs':
+            from handlers.admin_free import admin_free_list
+            await admin_free_list(update, context)
+            return
+        if top == 'admin_broadcast':
+            from handlers.admin_broadcast import start_broadcast
+            await start_broadcast(update, context)
+            return
+        if top == 'admin_finance_menu' or top == 'admin_finance':
+            from handlers.admin_finance import admin_finance_menu
+            await admin_finance_menu(update, context)
+            return
+        if top == 'admin_discounts_menu' or top == 'admin_discounts':
+            from handlers.admin_discounts import admin_discounts_menu
+            await admin_discounts_menu(update, context)
+            return
+        if top == 'test_server_menu':
+            from handlers.admin_testserver import test_server_menu
+            await test_server_menu(update, context)
+            return
+        if top == 'admin_stats':
+            await admin_stats(update, context)
+            return
+        if top == 'admin_recent_orders':
+            await admin_recent_orders(update, context)
+            return
+        if top == 'admin_server_info' or top == 'admin_server':
+            await admin_server_info(update, context)
+            return
+        if top == 'admin_tickets':
+            from handlers.support import admin_tickets_list
+            await admin_tickets_list(update, context)
+            return
+    # Fallback to main admin panel
     await admin_panel(update, context)
 
 async def admin_server_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    context.user_data['admin_prev'] = 'admin_server_info'
     
     msg = (
         "🖥 <b>راهنمای مدیریت سرور (Ubuntu)</b>\n"
