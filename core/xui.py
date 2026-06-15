@@ -627,10 +627,8 @@ class XUIApi:
         url = self.url
         if ":8000" in url or ":8001" in url:
             url = url.replace(":8000", ":2096").replace(":8001", ":2096")
-        # Preserve any path component in the configured base URL (some panels host at a subpath/token)
-        parsed = urlparse(url.rstrip("/"))
-        base_path = parsed.path.rstrip("/") if parsed.path else ""
-        base = f"{parsed.scheme}://{parsed.netloc}{base_path}"
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
         # Ensure sub_id is safely quoted for inclusion in URL path
         if sub_id is None:
             return f"{base}{path}"
