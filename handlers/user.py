@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CopyTextButton, InputFile
 from telegram.ext import ContextTypes
 from sqlalchemy.future import select
+from sqlalchemy import func
 from database.models import AsyncSessionLocal, User, Category, Product, Service, Order, XUIPanel, TestServerAssignment
 from core.xui import XUIApi
 import core.config as config

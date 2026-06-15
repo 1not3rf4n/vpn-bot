@@ -492,6 +492,7 @@ async def save_test_vol(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
         return WAIT_TEST_VOL
     context.user_data['tmp_test_vol'] = vol
+    logger.info(f"Admin temp test vol set to: {vol} (type={type(vol)})")
     await update.message.reply_text("مدت اعتبار (تعداد روز) برای این تست را وارد کنید (مثلاً 1):", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
     return WAIT_TEST_DUR
 
@@ -559,6 +560,7 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Try to provision on panel (best-effort)
     try:
         from services.vpn_panel import vpn_panel
+        logger.info(f"Provisioning test server: {server_name}, vol={vol}, dur={dur}")
         cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
         # Update service with config link if possible
         async with AsyncSessionLocal() as session:
@@ -566,7 +568,8 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if s:
                 s.config_link = cfg
                 await session.commit()
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Provisioning failed for {server_name}: {e}")
         cfg = None
 
     await update.message.reply_text(f"✅ سرور تست {server_name} با موفقیت ارسال شد.")

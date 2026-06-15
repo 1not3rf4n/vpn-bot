@@ -15,9 +15,15 @@ class VPNPanelService:
     async def create_user(self, username, data_limit=0, expire_days=30):
         """
         Creates user in panel and returns the config link.
+        data_limit is interpreted as GB (float). Mock will log the provided limit and convert to MB for demonstration.
         """
-        logging.info(f"Creating user {username} on {self.panel_type} (MOCK)")
-        # If real, here we call: await client.post(self.api_url + '/api/user', ...)
+        try:
+            d_gb = float(data_limit or 0)
+        except Exception:
+            d_gb = 0.0
+        limit_mb = int(d_gb * 1024)
+        logging.info(f"Creating user {username} on {self.panel_type} (MOCK) - limit: {d_gb} GB ({limit_mb} MB), expire_days={expire_days}")
+        # If real, here we would call the panel API and pass data_limit in appropriate units
         return f"vless://mock-uuid-1234@mock.server.com:443?type=tcp#{username}"
         
     async def get_user_status(self, username):

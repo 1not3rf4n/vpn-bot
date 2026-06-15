@@ -3,7 +3,10 @@ from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler
 from sqlalchemy.future import select
 from database.models import AsyncSessionLocal, TestServerTemplate
 from core.settings import get_setting, set_setting
+import logging
 from handlers.admin import push_admin_view, cancel_admin
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 
 # Local states
@@ -226,11 +229,13 @@ async def save_def_base(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def save_def_vol(update: Update, context: ContextTypes.DEFAULT_TYPE):
     val = (update.message.text or '').strip()
     try:
-        float(val)
+        n = float(val)
     except:
         await update.message.reply_text('لطفاً عدد معتبر وارد کنید:')
         return WAIT_DEF_VOL
-    await set_setting('test_server_volume_gb', val)
+    # Normalize and store as canonical float string
+    await set_setting('test_server_volume_gb', str(n))
+    logger.info(f"Admin saved test_server_volume_gb = {n}")
     await update.message.reply_text('✅ حجم پیش‌فرض ذخیره شد.')
     return ConversationHandler.END
 
@@ -282,6 +287,7 @@ def get_admin_testserver_routers():
         CallbackQueryHandler(test_server_menu, pattern="^test_server_menu$"),
         CallbackQueryHandler(testtpl_manage, pattern="^testtpl_manage$"),
         CallbackQueryHandler(testtpl_defaults, pattern="^testtpl_defaults$"),
+        CallbackQueryHandler(testtpl_defaults, pattern="^test_server_defaults$"),
         CallbackQueryHandler(testtpl_callbacks, pattern="^testtpl_"),
         CallbackQueryHandler(testtpl_def_callbacks, pattern="^testtpl_def_"),
     ]
