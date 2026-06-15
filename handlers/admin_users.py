@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler
 import logging
 from sqlalchemy import func, select
 from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket, TestServerAssignment
-from handlers.admin import CANCEL_BTN, admin_panel
+from handlers.admin import CANCEL_BTN, admin_panel, push_admin_view
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -24,8 +24,8 @@ WAIT_TEST_INB = 98
 async def admin_users_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query: await query.answer()
-    # set previous view for back navigation
-    context.user_data['admin_prev'] = 'admin_users_menu'
+    # push this view onto admin navigation stack
+    push_admin_view(context, 'admin_users_menu')
     
     text = "👥 <b>مدیریت کاربران</b>\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:"
     keys = [
@@ -112,7 +112,7 @@ async def render_user_profile(user, message_obj, is_edit=False):
     ]
     
     # Ensure back returns to user list/search
-    context.user_data['admin_prev'] = 'admin_users_menu'
+    push_admin_view(context, 'admin_users_menu')
     if is_edit:
         await message_obj.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     else:

@@ -14,9 +14,6 @@ async def check_admin(user_id):
         user = result.scalars().first()
         return user and user.is_admin
 
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Reset admin navigation breadcrumb stack
-    context.user_data['admin_stack'] = []
 
 
 def push_admin_view(context, view_name):
@@ -39,6 +36,11 @@ def pop_admin_view(context):
         stack.pop()
     context.user_data['admin_stack'] = stack
     return stack[-1] if stack else None
+
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Reset admin navigation breadcrumb stack
+    context.user_data['admin_stack'] = []
 
     query = update.callback_query
     if query:
