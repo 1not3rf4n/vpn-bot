@@ -542,7 +542,7 @@ async def admin_send_test_from_template(update: Update, context: ContextTypes.DE
     dur = int(tpl.duration_days or 1)
 
     try:
-        return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context)
+        return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context, True)
     except Exception as e:
         logger.exception(f"admin_send_test_from_template failed: {e}")
         try:
@@ -582,7 +582,7 @@ async def save_test_dur(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("شماره Inbound ID پنل را وارد کنید (مثلاً 1):", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
     return WAIT_TEST_INB
 
-async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: float, dur: int, inb: int, update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: float, dur: int, inb: int, update: Update, context: ContextTypes.DEFAULT_TYPE, allow_admin_override: bool = False):
     # Helper: performs DB record creation, provisioning on panel, and delivery to the user's telegram_id.
     # Determine reply target for admin messages
     reply_target = update.message if getattr(update, 'message', None) else (update.callback_query.message if getattr(update, 'callback_query', None) else None)
@@ -595,13 +595,15 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
                 await reply_target.reply_text("❌ کاربر یافت نشد.")
             return ConversationHandler.END
 
-        # Check one-per-user rule
+        # Check one-per-user rule (only enforced for user-initiated claims)
         existing = (await session.execute(select(TestServerAssignment).where(TestServerAssignment.user_id == user_db_id))).scalars().first()
-        if existing:
+        if existing and not allow_admin_override:
             if reply_target:
                 await reply_target.reply_text("این کاربر قبلاً سرور تست دریافت کرده است.", reply_markup=InlineKeyboardMarkup(CANCEL_BTN))
                 await render_user_profile(user, reply_target, context, is_edit=False)
             return ConversationHandler.END
+        elif existing and allow_admin_override:
+            logger.info(f"Admin override: sending additional test server to user {user_db_id}")
 
         # Count existing assignments with same base to increment
         like_pattern = f"{base}%"
@@ -656,14 +658,22 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
                     # Try subscription id
                     sub_id = await xui.get_client_subscription_id(inb, server_name)
                     sub_path = await get_setting('xui_sub_path', '/sub/')
-                    # Prefer building subscription URL using panel_display_name (email). If not available, fall back to sub_id or direct link.
-                    sub_key = panel_display_name or sub_id or server_name
+                    # Build explicit subscription URL using panel_display_name/email or fallback to server_name
+                    preferred_key = panel_display_name or sub_id or server_name
                     try:
-                        cfg = xui.build_subscription_url(sub_key, sub_path)
+                        cfg = xui.build_subscription_url(preferred_key, sub_path)
                     except Exception:
                         # fallback to direct link
                         direct = await xui.build_direct_link(inb, client_uuid, server_name)
                         cfg = direct
+                    # Ensure subscription URL ends with the email/server identifier (/sub/{email})
+                    try:
+                        if isinstance(cfg, str) and '/sub/' in cfg:
+                            # enforce using panel_display_name or server_name at end
+                            final_key = panel_display_name or server_name
+                            cfg = xui.build_subscription_url(final_key, sub_path)
+                    except Exception:
+                        pass
 
                 # Normalize panel display name by inspecting inbound client entry
                 try:
@@ -767,7 +777,7 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vol = context.user_data.get('tmp_test_vol', 0)
     dur = context.user_data.get('tmp_test_dur', 1)
 
-    return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context)
+    return await _provision_test_for_user_by_dbid(u_id, base, vol, dur, inb, update, context, True)
 
 # --- Order/Subscription Search ---
 async def admin_search_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
