@@ -644,6 +644,7 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
             panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
         cfg = None
         links = []
+        client_email = None
         if panel_db:
             xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
             client_uuid = await xui.add_client(inb, server_name, total_gb=vol, expire_days=dur)
@@ -660,18 +661,22 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
                     sub_path = await get_setting('xui_sub_path', '/sub/')
                     # Build explicit subscription URL using panel_display_name/email or fallback to server_name
                     preferred_key = panel_display_name or sub_id or server_name
+                    # Determine client_email for subscription (strip leading @ if any)
                     try:
-                        cfg = xui.build_subscription_url(preferred_key, sub_path)
+                        client_email = str(preferred_key).lstrip("@")
+                    except Exception:
+                        client_email = None
+                    try:
+                        cfg = xui.build_subscription_url(client_email, sub_path)
                     except Exception:
                         # fallback to direct link
                         direct = await xui.build_direct_link(inb, client_uuid, server_name)
                         cfg = direct
                     # Ensure subscription URL ends with the email/server identifier (/sub/{email})
                     try:
-                        if isinstance(cfg, str) and '/sub/' in cfg:
-                            # enforce using panel_display_name or server_name at end
-                            final_key = panel_display_name or server_name
-                            cfg = xui.build_subscription_url(final_key, sub_path)
+                        if isinstance(cfg, str) and '/sub/' in cfg and client_email:
+                            # enforce using client_email at end
+                            cfg = xui.build_subscription_url(client_email, sub_path)
                     except Exception:
                         pass
 
@@ -694,6 +699,11 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
                     for c in client_entries:
                         if str(c.get('id')) == str(client_uuid) or str(c.get('email')) == str(server_name) or str(c.get('subId')) == str(server_name):
                             panel_display_name = c.get('email') or c.get('subId') or c.get('remark') or panel_display_name
+                            # update client_email accordingly
+                            try:
+                                client_email = str(panel_display_name).lstrip("@") if panel_display_name else client_email
+                            except Exception:
+                                pass
                             break
                 except Exception:
                     pass
@@ -714,10 +724,10 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
                 try:
                     if panel_db and isinstance(cfg, str) and '/sub/' in cfg:
                         # prefer panel_display_name/email
-                        final_key = panel_display_name or client_uuid or server_name
+                        final_key = client_email or client_uuid or server_name
                         sub_path = await get_setting('xui_sub_path', '/sub/')
                         cfg_built = build_subscription_url(panel_db.url, final_key, sub_path)
-                        s.config_link = build_service_config_link(cfg_built, panel_display_name or server_name, client_email or '', inb, client_uuid or '', remark=panel_display_name or server_name)
+                        s.config_link = build_service_config_link(cfg_built, panel_display_name or server_name, client_email or final_key or '', inb, client_uuid or '', remark=panel_display_name or server_name)
                     else:
                         # fallback: store raw cfg but wrap with service meta for consistency
                         s.config_link = build_service_config_link(cfg or '', panel_display_name or server_name, client_email or '', inb, client_uuid or '', remark=panel_display_name or server_name)
