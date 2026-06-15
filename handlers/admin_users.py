@@ -491,8 +491,16 @@ async def start_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🚀 انتخاب قالب برای ارسال سرور تست:\n\nلطفاً یکی از قالب‌ها را انتخاب کنید یا ارسال سفارشی را انتخاب کنید:" 
     try:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
-    except Exception:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+    except Exception as e:
+        from telegram.error import BadRequest
+        # Ignore benign "Message is not modified" errors
+        if isinstance(e, BadRequest) and 'Message is not modified' in str(e):
+            pass
+        else:
+            try:
+                await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
+            except Exception:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=InlineKeyboardMarkup(keys), parse_mode="HTML")
     return ConversationHandler.END
 
 

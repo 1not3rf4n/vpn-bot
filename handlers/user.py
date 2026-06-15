@@ -756,7 +756,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # Prefer XUI panel provisioning
             from core.xui import XUIApi
-            from database.models import XUIPanel
+            # XUIPanel already imported at module level
             panel_db = None
             async with AsyncSessionLocal() as session:
                 panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
