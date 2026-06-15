@@ -4,6 +4,7 @@ import logging
 from sqlalchemy import func, select
 from database.models import AsyncSessionLocal, User, Order, Receipt, Service, Ticket, TestServerAssignment
 from handlers.admin import CANCEL_BTN, admin_panel, push_admin_view
+from core.settings import get_setting
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -559,9 +560,38 @@ async def save_test_inb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Try to provision on panel (best-effort)
     try:
-        from services.vpn_panel import vpn_panel
-        logger.info(f"Provisioning test server: {server_name}, vol={vol}, dur={dur}")
-        cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
+        # Prefer using configured XUI panel to create client and fetch real links
+        from core.xui import XUIApi
+        from database.models import XUIPanel
+        panel_db = None
+        async with AsyncSessionLocal() as session:
+            panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+        cfg = None
+        if panel_db:
+            xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+            client_uuid = await xui.add_client(inb, server_name, total_gb=vol, expire_days=dur)
+            if client_uuid:
+                # Try fetch client links first
+                links = await xui.get_client_links(server_name)
+                if links:
+                    cfg = links[0]
+                else:
+                    # Try subscription id
+                    sub_id = await xui.get_client_subscription_id(inb, server_name)
+                    sub_path = await get_setting('xui_sub_path', '/sub/')
+                    if sub_id:
+                        cfg = xui.build_subscription_url(sub_id, sub_path)
+                    else:
+                        # fallback to direct link
+                        direct = await xui.build_direct_link(inb, client_uuid, server_name)
+                        cfg = direct
+            await xui.close()
+        if not cfg:
+            # Fallback to generic vpn_panel mock
+            from services.vpn_panel import vpn_panel
+            logger.info(f"Falling back to vpn_panel for {server_name}")
+            cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
+
         # Update service with config link if possible
         async with AsyncSessionLocal() as session:
             s = (await session.execute(select(Service).where(Service.user_id == u_id).order_by(Service.id.desc()))).scalars().first()

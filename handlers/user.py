@@ -754,14 +754,38 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await session.commit()
 
         try:
-            from services.vpn_panel import vpn_panel
-            cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
+            # Prefer XUI panel provisioning
+            from core.xui import XUIApi
+            from database.models import XUIPanel
+            panel_db = None
+            async with AsyncSessionLocal() as session:
+                panel_db = (await session.execute(select(XUIPanel).where(XUIPanel.is_active == True))).scalars().first()
+            cfg = None
+            if panel_db:
+                xui = XUIApi(panel_db.url, panel_db.username, panel_db.password)
+                client_uuid = await xui.add_client(inb, server_name, total_gb=vol, expire_days=dur)
+                if client_uuid:
+                    links = await xui.get_client_links(server_name)
+                    if links:
+                        cfg = links[0]
+                    else:
+                        sub_id = await xui.get_client_subscription_id(inb, server_name)
+                        sub_path = await settings.get_setting('xui_sub_path', '/sub/')
+                        if sub_id:
+                            cfg = xui.build_subscription_url(sub_id, sub_path)
+                        else:
+                            cfg = await xui.build_direct_link(inb, client_uuid, server_name)
+                await xui.close()
+            if not cfg:
+                from services.vpn_panel import vpn_panel
+                cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
             async with AsyncSessionLocal() as session:
                 s = (await session.execute(select(Service).where(Service.user_id == user_db.id).order_by(Service.id.desc()))).scalars().first()
                 if s:
                     s.config_link = cfg
                     await session.commit()
-        except Exception:
+        except Exception as e:
+            logger.exception(f"Provisioning test server failed: {e}")
             cfg = None
 
         await update.message.reply_text(f"✅ سرور تست برای شما فعال شد: <code>{server_name}</code>", parse_mode="HTML")
