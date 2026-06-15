@@ -706,10 +706,24 @@ async def _provision_test_for_user_by_dbid(user_db_id: int, base: str, vol: floa
             cfg = await vpn_panel.create_user(server_name, data_limit=vol, expire_days=dur)
 
         # Update service with config link and panel username if possible
+        from core.v2ray_delivery import build_service_config_link, build_subscription_url
         async with AsyncSessionLocal() as session:
             s = (await session.execute(select(Service).where(Service.user_id == user_db_id).order_by(Service.id.desc()))).scalars().first()
             if s:
-                s.config_link = cfg
+                # If we have a panel and a sub-like cfg, build subscription URL using shop algorithm
+                try:
+                    if panel_db and isinstance(cfg, str) and '/sub/' in cfg:
+                        # prefer panel_display_name/email
+                        final_key = panel_display_name or client_uuid or server_name
+                        sub_path = await get_setting('xui_sub_path', '/sub/')
+                        cfg_built = build_subscription_url(panel_db.url, final_key, sub_path)
+                        s.config_link = build_service_config_link(cfg_built, panel_display_name or server_name, client_email or '', inb, client_uuid or '', remark=panel_display_name or server_name)
+                    else:
+                        # fallback: store raw cfg but wrap with service meta for consistency
+                        s.config_link = build_service_config_link(cfg or '', panel_display_name or server_name, client_email or '', inb, client_uuid or '', remark=panel_display_name or server_name)
+                except Exception:
+                    # last resort: save raw cfg
+                    s.config_link = cfg
                 # set panel_username to the display name we derived if available
                 try:
                     s.panel_username = panel_display_name
